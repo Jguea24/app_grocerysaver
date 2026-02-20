@@ -1,17 +1,22 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db.models import Min
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import EmailVerificationToken, Role, SocialAccount
+from .models import Category, EmailVerificationToken, Product, ProductPrice, Role, SocialAccount, Store
 from .serializers import (
+    CategorySerializer,
     LoginSerializer,
     LogoutSerializer,
+    ProductPriceSerializer,
+    ProductSerializer,
     RegisterSerializer,
     SocialLoginSerializer,
+    StoreSerializer,
     VerifyEmailSerializer,
 )
 from .services import (
@@ -147,6 +152,28 @@ class ApiRootView(APIView):
                         'auth_required': False,
                     },
                     {
+                        'path': '/api/stores/',
+                        'method': 'GET',
+                        'auth_required': False,
+                    },
+                    {
+                        'path': '/api/categories/',
+                        'method': 'GET',
+                        'auth_required': False,
+                    },
+                    {
+                        'path': '/api/products/',
+                        'method': 'GET',
+                        'auth_required': False,
+                        'query_params': ['category_id', 'search'],
+                    },
+                    {
+                        'path': '/api/compare-prices/',
+                        'method': 'GET',
+                        'auth_required': False,
+                        'query_params': ['product_id', 'product'],
+                    },
+                    {
                         'path': '/api/protected/',
                         'method': 'GET',
                         'auth_required': True,
@@ -168,6 +195,107 @@ class RoleListView(APIView):
     def get(self, request):
         roles = Role.objects.order_by('name').values('name', 'description')
         return Response({'roles': list(roles)})
+
+
+class StoreListView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        stores = Store.objects.all()
+        return Response({'stores': StoreSerializer(stores, many=True).data})
+
+
+class CategoryListView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        categories = Category.objects.all()
+        return Response({'categories': CategorySerializer(categories, many=True).data})
+
+
+class ProductListView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        queryset = Product.objects.select_related('category').prefetch_related('prices__store')
+        category_id = request.query_params.get('category_id')
+        search = request.query_params.get('search')
+
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+
+        if search:
+            queryset = queryset.filter(name__icontains=search)
+
+        cheapest_prices = {
+            row['product_id']: row['min_price']
+            for row in ProductPrice.objects.filter(product__in=queryset)
+            .values('product_id')
+            .annotate(min_price=Min('price'))
+        }
+        products_payload = []
+        for product in queryset:
+            product_data = ProductSerializer(product).data
+            product_data['best_price'] = str(cheapest_prices.get(product.id)) if product.id in cheapest_prices else None
+            products_payload.append(product_data)
+
+        return Response({'products': products_payload})
+
+
+class ProductPriceComparisonView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        product_id = request.query_params.get('product_id')
+        product_name = request.query_params.get('product')
+
+        if not product_id and not product_name:
+            return Response(
+                {'detail': 'Debes enviar product_id o product en query params.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = Product.objects.select_related('category').prefetch_related('prices__store')
+        if product_id:
+            product = queryset.filter(id=product_id).first()
+        else:
+            product = queryset.filter(name__iexact=product_name).first()
+            if product is None:
+                product = queryset.filter(name__icontains=product_name).first()
+
+        if product is None:
+            return Response({'detail': 'Producto no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        prices = product.prices.select_related('store').order_by('price')
+        if not prices.exists():
+            return Response(
+                {
+                    'product': ProductSerializer(product).data,
+                    'prices': [],
+                    'best_option': None,
+                    'most_expensive_option': None,
+                }
+            )
+
+        best_option = prices.first()
+        most_expensive_option = prices.last()
+        savings = most_expensive_option.price - best_option.price
+
+        return Response(
+            {
+                'product': ProductSerializer(product).data,
+                'prices': ProductPriceSerializer(prices, many=True).data,
+                'best_option': {
+                    'store': best_option.store.name,
+                    'price': str(best_option.price),
+                },
+                'most_expensive_option': {
+                    'store': most_expensive_option.store.name,
+                    'price': str(most_expensive_option.price),
+                },
+                'savings_vs_most_expensive': str(savings),
+            }
+        )
 
 
 class VerifyEmailView(APIView):

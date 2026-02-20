@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
 
-from .models import EmailVerificationToken, Role, UserProfile
+from .models import Category, EmailVerificationToken, Product, ProductPrice, Role, Store, UserProfile
 
 User = get_user_model()
 
@@ -52,6 +52,32 @@ class CustomUserAdmin(UserAdmin):
 class RoleAdmin(admin.ModelAdmin):
     list_display = ('name', 'description', 'created_at')
     search_fields = ('name',)
+
+
+@admin.register(Store)
+class StoreAdmin(admin.ModelAdmin):
+    list_display = ('name', 'created_at')
+    search_fields = ('name',)
+
+
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = ('name', 'created_at')
+    search_fields = ('name',)
+
+
+@admin.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ('name', 'brand', 'category', 'created_at')
+    list_filter = ('category',)
+    search_fields = ('name', 'brand', 'category__name')
+
+
+@admin.register(ProductPrice)
+class ProductPriceAdmin(admin.ModelAdmin):
+    list_display = ('product', 'store', 'price', 'updated_at')
+    list_filter = ('store', 'product__category')
+    search_fields = ('product__name', 'product__brand', 'store__name')
 
 
 @admin.register(EmailVerificationToken)

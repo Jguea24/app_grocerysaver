@@ -20,6 +20,62 @@ class Role(models.Model):
         return self.name
 
 
+class Store(models.Model):
+    name = models.CharField(max_length=80, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class Category(models.Model):
+    name = models.CharField(max_length=80, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name_plural = 'categories'
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class Product(models.Model):
+    category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name='products')
+    name = models.CharField(max_length=120)
+    brand = models.CharField(max_length=120, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['category', 'name', 'brand'], name='uniq_product_by_category_name_brand'),
+        ]
+        ordering = ['name']
+
+    def __str__(self):
+        brand_label = f' ({self.brand})' if self.brand else ''
+        return f'{self.name}{brand_label}'
+
+
+class ProductPrice(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='prices')
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='prices')
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['product', 'store'], name='uniq_price_per_product_store'),
+        ]
+        ordering = ['price']
+
+    def __str__(self):
+        return f'{self.product} - {self.store}: {self.price}'
+
+
 class EmailVerificationToken(models.Model):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,

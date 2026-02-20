@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import EmailVerificationToken, Role, SocialAccount, UserProfile
+from .models import EmailVerificationToken, Product, Role, SocialAccount, UserProfile
 
 
 class AuthFlowTests(APITestCase):
@@ -226,3 +226,30 @@ class AuthFlowTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('provider_user_id', response.data)
+
+
+class CatalogComparisonTests(APITestCase):
+    def test_store_category_and_product_list_endpoints(self):
+        stores_response = self.client.get('/api/stores/')
+        self.assertEqual(stores_response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(stores_response.data['stores']), 3)
+
+        categories_response = self.client.get('/api/categories/')
+        self.assertEqual(categories_response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(categories_response.data['categories']), 5)
+
+        products_response = self.client.get('/api/products/')
+        self.assertEqual(products_response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(products_response.data['products']), 5)
+
+    def test_compare_prices_for_leche(self):
+        product = Product.objects.filter(name__icontains='Leche').first()
+        self.assertIsNotNone(product)
+
+        response = self.client.get(f'/api/compare-prices/?product_id={product.id}')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['best_option']['store'], 'Toti')
+        self.assertEqual(response.data['best_option']['price'], '1.05')
+        self.assertEqual(response.data['most_expensive_option']['store'], 'Tia')
+        self.assertEqual(response.data['most_expensive_option']['price'], '2.25')
+        self.assertEqual(response.data['savings_vs_most_expensive'], '1.20')

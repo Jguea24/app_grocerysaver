@@ -2,7 +2,7 @@ from django.contrib.auth import authenticate, get_user_model
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Role, SocialProvider, UserProfile
+from .models import Category, Product, ProductPrice, Role, SocialProvider, Store, UserProfile
 from .services import build_unique_username_from_email, validate_password_or_raise
 
 
@@ -118,3 +118,31 @@ class SocialLoginSerializer(serializers.Serializer):
 
 class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
+
+
+class StoreSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Store
+        fields = ['id', 'name']
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ['id', 'name']
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    category = CategorySerializer(read_only=True)
+
+    class Meta:
+        model = Product
+        fields = ['id', 'name', 'brand', 'category']
+
+
+class ProductPriceSerializer(serializers.ModelSerializer):
+    store = StoreSerializer(read_only=True)
+
+    class Meta:
+        model = ProductPrice
+        fields = ['store', 'price', 'updated_at']
