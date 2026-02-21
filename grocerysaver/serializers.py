@@ -2,7 +2,20 @@ from django.contrib.auth import authenticate, get_user_model
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Category, Product, ProductPrice, Role, SocialProvider, Store, UserProfile
+from .models import (
+    Address,
+    Category,
+    NotificationPreference,
+    Product,
+    ProductPrice,
+    Raffle,
+    Role,
+    RoleChangeRequest,
+    RoleChangeRequestStatus,
+    SocialProvider,
+    Store,
+    UserProfile,
+)
 from .services import build_unique_username_from_email, validate_password_or_raise
 
 
@@ -126,18 +139,73 @@ class StoreSerializer(serializers.ModelSerializer):
         fields = ['id', 'name']
 
 
+class AddressSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Address
+        fields = [
+            'id',
+            'label',
+            'contact_name',
+            'phone',
+            'line1',
+            'line2',
+            'city',
+            'is_default',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class NotificationPreferenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NotificationPreference
+        fields = ['push_enabled', 'email_enabled', 'sms_enabled', 'updated_at']
+        read_only_fields = ['updated_at']
+
+
+class RaffleSerializer(serializers.ModelSerializer):
+    is_active = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Raffle
+        fields = ['id', 'title', 'description', 'starts_at', 'ends_at', 'is_active']
+
+    def get_is_active(self, obj):
+        return obj.is_active
+
+
 class CategorySerializer(serializers.ModelSerializer):
+    image = serializers.SerializerMethodField()
+
     class Meta:
         model = Category
-        fields = ['id', 'name']
+        fields = ['id', 'name', 'image']
+
+    def get_image(self, obj):
+        if not obj.image:
+            return None
+        request = self.context.get('request')
+        if request is not None:
+            return request.build_absolute_uri(obj.image.url)
+        return obj.image.url
 
 
 class ProductSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
+    image = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields = ['id', 'name', 'brand', 'category']
+        fields = ['id', 'name', 'brand', 'description', 'image', 'category']
+
+    def get_image(self, obj):
+        if not obj.image:
+            return None
+        request = self.context.get('request')
+        if request is not None:
+            return request.build_absolute_uri(obj.image.url)
+        return obj.image.url
 
 
 class ProductPriceSerializer(serializers.ModelSerializer):
@@ -146,3 +214,69 @@ class ProductPriceSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductPrice
         fields = ['store', 'price', 'updated_at']
+
+
+class RoleChangeRequestSerializer(serializers.ModelSerializer):
+    current_role = serializers.SerializerMethodField()
+    requested_role = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RoleChangeRequest
+        fields = [
+            'id',
+            'current_role',
+            'requested_role',
+            'reason',
+            'status',
+            'admin_notes',
+            'created_at',
+            'updated_at',
+            'resolved_at',
+        ]
+
+    def get_current_role(self, obj):
+        if obj.current_role is None:
+            return None
+        return obj.current_role.name
+
+    def get_requested_role(self, obj):
+        return obj.requested_role.name
+
+
+class RoleChangeRequestCreateSerializer(serializers.Serializer):
+    requested_role = serializers.CharField(max_length=50)
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=255)
+
+    def validate_requested_role(self, value):
+        role = Role.objects.filter(name__iexact=value).first()
+        if role is None:
+            raise serializers.ValidationError('Rol solicitado invalido.')
+        return role
+
+    def validate(self, attrs):
+        user = self.context['request'].user
+        requested_role = attrs['requested_role']
+        current_role = getattr(getattr(user, 'profile', None), 'role', None)
+
+        if current_role and current_role.id == requested_role.id:
+            raise serializers.ValidationError({'requested_role': 'Ya tienes ese rol.'})
+
+        has_pending = RoleChangeRequest.objects.filter(
+            user=user,
+            status=RoleChangeRequestStatus.PENDING,
+        ).exists()
+        if has_pending:
+            raise serializers.ValidationError('Ya tienes una solicitud pendiente.')
+
+        return attrs
+
+    def create(self, validated_data):
+        user = self.context['request'].user
+        current_role = getattr(getattr(user, 'profile', None), 'role', None)
+
+        return RoleChangeRequest.objects.create(
+            user=user,
+            current_role=current_role,
+            requested_role=validated_data['requested_role'],
+            reason=validated_data.get('reason', ''),
+        )

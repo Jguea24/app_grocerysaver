@@ -1,8 +1,21 @@
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import EmailVerificationToken, Product, Role, SocialAccount, UserProfile
+from .models import (
+    Address,
+    EmailVerificationToken,
+    NotificationPreference,
+    Product,
+    Raffle,
+    Role,
+    RoleChangeRequest,
+    SocialAccount,
+    UserProfile,
+)
 
 
 class AuthFlowTests(APITestCase):
@@ -248,8 +261,130 @@ class CatalogComparisonTests(APITestCase):
 
         response = self.client.get(f'/api/compare-prices/?product_id={product.id}')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['stores_available'], 3)
         self.assertEqual(response.data['best_option']['store'], 'Toti')
         self.assertEqual(response.data['best_option']['price'], '1.05')
         self.assertEqual(response.data['most_expensive_option']['store'], 'Tia')
         self.assertEqual(response.data['most_expensive_option']['price'], '2.25')
         self.assertEqual(response.data['savings_vs_most_expensive'], '1.20')
+
+
+class ProfileMenuEndpointsTests(APITestCase):
+    def setUp(self):
+        self.cliente_role, _ = Role.objects.get_or_create(name='cliente')
+        self.admin_role, _ = Role.objects.get_or_create(name='admin')
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            username='perfil.user',
+            email='perfil@example.com',
+            password='TestPass123!@#',
+            is_active=True,
+        )
+        UserProfile.objects.create(
+            user=self.user,
+            role=self.cliente_role,
+            address='Centro',
+            birth_date='1996-08-15',
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def test_address_endpoints(self):
+        create_response = self.client.post(
+            '/api/profile/addresses/',
+            {
+                'label': 'Casa',
+                'contact_name': 'Johnny Grefa',
+                'phone': '0999999999',
+                'line1': 'Av. Principal 123',
+                'city': 'Quito',
+                'is_default': True,
+            },
+            format='json',
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+        list_response = self.client.get('/api/profile/addresses/')
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_response.data['addresses']), 1)
+        self.assertEqual(list_response.data['addresses'][0]['city'], 'Quito')
+
+    def test_notification_preferences_endpoint(self):
+        get_response = self.client.get('/api/profile/notifications/')
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(get_response.data['notification_preferences']['push_enabled'])
+
+        patch_response = self.client.patch(
+            '/api/profile/notifications/',
+            {'push_enabled': False, 'sms_enabled': True},
+            format='json',
+        )
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(patch_response.data['notification_preferences']['push_enabled'])
+        self.assertTrue(patch_response.data['notification_preferences']['sms_enabled'])
+
+        self.assertTrue(NotificationPreference.objects.filter(user=self.user).exists())
+
+    def test_active_raffles_endpoint(self):
+        now = timezone.now()
+        Raffle.objects.create(
+            title='Rifa activa',
+            starts_at=now - timedelta(days=1),
+            ends_at=now + timedelta(days=1),
+        )
+        Raffle.objects.create(
+            title='Rifa finalizada',
+            starts_at=now - timedelta(days=3),
+            ends_at=now - timedelta(days=2),
+        )
+
+        response = self.client.get('/api/raffles/active/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['raffles']), 1)
+        self.assertEqual(response.data['raffles'][0]['title'], 'Rifa activa')
+
+    def test_role_change_request_endpoint(self):
+        create_response = self.client.post(
+            '/api/profile/role-change-requests/',
+            {
+                'requested_role': 'admin',
+                'reason': 'Quiero gestionar el catalogo',
+            },
+            format='json',
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(create_response.data['request']['status'], 'pending')
+
+        list_response = self.client.get('/api/profile/role-change-requests/')
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_response.data['requests']), 1)
+
+        self.assertTrue(
+            RoleChangeRequest.objects.filter(
+                user=self.user,
+                requested_role=self.admin_role,
+                status='pending',
+            ).exists()
+        )
+
+    def test_only_owner_can_modify_address(self):
+        other_user = get_user_model().objects.create_user(
+            username='otro.user',
+            email='otro@example.com',
+            password='TestPass123!@#',
+            is_active=True,
+        )
+        address = Address.objects.create(
+            user=other_user,
+            contact_name='Otro',
+            phone='0988888888',
+            line1='Otra calle',
+            city='Loja',
+            is_default=True,
+        )
+
+        response = self.client.patch(
+            f'/api/profile/addresses/{address.id}/',
+            {'city': 'Cuenca'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

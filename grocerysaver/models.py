@@ -2,13 +2,21 @@ import uuid
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.validators import FileExtensionValidator
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 
 class SocialProvider(models.TextChoices):
     FACEBOOK = 'facebook', 'Facebook'
     APPLE = 'apple', 'Apple'
+
+
+class RoleChangeRequestStatus(models.TextChoices):
+    PENDING = 'pending', 'Pending'
+    APPROVED = 'approved', 'Approved'
+    REJECTED = 'rejected', 'Rejected'
 
 
 class Role(models.Model):
@@ -33,6 +41,12 @@ class Store(models.Model):
 
 class Category(models.Model):
     name = models.CharField(max_length=80, unique=True)
+    image = models.FileField(
+        upload_to='categories/',
+        blank=True,
+        null=True,
+        validators=[FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png', 'webp'])],
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -47,6 +61,13 @@ class Product(models.Model):
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name='products')
     name = models.CharField(max_length=120)
     brand = models.CharField(max_length=120, blank=True)
+    description = models.TextField(blank=True, default='')
+    image = models.FileField(
+        upload_to='products/',
+        blank=True,
+        null=True,
+        validators=[FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png', 'webp'])],
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -155,3 +176,110 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f'UserProfile(user={self.user_id})'
+
+
+class Address(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='addresses',
+    )
+    label = models.CharField(max_length=50, blank=True)
+    contact_name = models.CharField(max_length=150)
+    phone = models.CharField(max_length=30)
+    line1 = models.CharField(max_length=255)
+    line2 = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100)
+    is_default = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-is_default', '-updated_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user'],
+                condition=Q(is_default=True),
+                name='uniq_default_address_per_user',
+            ),
+        ]
+
+    def __str__(self):
+        return f'Address(user={self.user_id}, city={self.city})'
+
+
+class NotificationPreference(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='notification_preference',
+    )
+    push_enabled = models.BooleanField(default=True)
+    email_enabled = models.BooleanField(default=True)
+    sms_enabled = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'NotificationPreference(user={self.user_id})'
+
+
+class Raffle(models.Model):
+    title = models.CharField(max_length=120)
+    description = models.TextField(blank=True)
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['starts_at']
+
+    @property
+    def is_active(self):
+        now = timezone.now()
+        return self.starts_at <= now <= self.ends_at
+
+    def __str__(self):
+        return self.title
+
+
+class RoleChangeRequest(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='role_change_requests',
+    )
+    current_role = models.ForeignKey(
+        Role,
+        on_delete=models.PROTECT,
+        related_name='current_role_change_requests',
+        null=True,
+        blank=True,
+    )
+    requested_role = models.ForeignKey(
+        Role,
+        on_delete=models.PROTECT,
+        related_name='requested_role_change_requests',
+    )
+    reason = models.CharField(max_length=255, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=RoleChangeRequestStatus.choices,
+        default=RoleChangeRequestStatus.PENDING,
+    )
+    admin_notes = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user'],
+                condition=Q(status=RoleChangeRequestStatus.PENDING),
+                name='uniq_pending_role_change_per_user',
+            ),
+        ]
+
+    def __str__(self):
+        return f'RoleChangeRequest(user={self.user_id}, status={self.status})'

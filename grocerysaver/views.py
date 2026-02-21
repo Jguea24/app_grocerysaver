@@ -1,20 +1,37 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db.models import Min
+from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import Category, EmailVerificationToken, Product, ProductPrice, Role, SocialAccount, Store
+from .models import (
+    Address,
+    Category,
+    EmailVerificationToken,
+    NotificationPreference,
+    Product,
+    ProductPrice,
+    Raffle,
+    Role,
+    RoleChangeRequest,
+    SocialAccount,
+    Store,
+)
 from .serializers import (
+    AddressSerializer,
     CategorySerializer,
     LoginSerializer,
     LogoutSerializer,
+    NotificationPreferenceSerializer,
     ProductPriceSerializer,
     ProductSerializer,
+    RaffleSerializer,
     RegisterSerializer,
+    RoleChangeRequestCreateSerializer,
+    RoleChangeRequestSerializer,
     SocialLoginSerializer,
     StoreSerializer,
     VerifyEmailSerializer,
@@ -174,6 +191,41 @@ class ApiRootView(APIView):
                         'query_params': ['product_id', 'product'],
                     },
                     {
+                        'path': '/api/profile/addresses/',
+                        'method': 'GET',
+                        'auth_required': True,
+                    },
+                    {
+                        'path': '/api/profile/addresses/',
+                        'method': 'POST',
+                        'auth_required': True,
+                    },
+                    {
+                        'path': '/api/profile/notifications/',
+                        'method': 'GET',
+                        'auth_required': True,
+                    },
+                    {
+                        'path': '/api/profile/notifications/',
+                        'method': 'PATCH',
+                        'auth_required': True,
+                    },
+                    {
+                        'path': '/api/raffles/active/',
+                        'method': 'GET',
+                        'auth_required': True,
+                    },
+                    {
+                        'path': '/api/profile/role-change-requests/',
+                        'method': 'GET',
+                        'auth_required': True,
+                    },
+                    {
+                        'path': '/api/profile/role-change-requests/',
+                        'method': 'POST',
+                        'auth_required': True,
+                    },
+                    {
                         'path': '/api/protected/',
                         'method': 'GET',
                         'auth_required': True,
@@ -205,12 +257,99 @@ class StoreListView(APIView):
         return Response({'stores': StoreSerializer(stores, many=True).data})
 
 
+class AddressListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        addresses = request.user.addresses.all()
+        return Response({'addresses': AddressSerializer(addresses, many=True).data})
+
+    def post(self, request):
+        serializer = AddressSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        is_default = serializer.validated_data.get('is_default', False)
+        if not request.user.addresses.exists():
+            is_default = True
+        if is_default:
+            request.user.addresses.update(is_default=False)
+
+        address = serializer.save(user=request.user, is_default=is_default)
+        return Response({'address': AddressSerializer(address).data}, status=status.HTTP_201_CREATED)
+
+
+class AddressDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_address(self, request, address_id):
+        return Address.objects.filter(id=address_id, user=request.user).first()
+
+    def patch(self, request, address_id):
+        address = self._get_address(request, address_id)
+        if address is None:
+            return Response({'detail': 'Direccion no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = AddressSerializer(address, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        is_default = serializer.validated_data.get('is_default', address.is_default)
+        if is_default:
+            request.user.addresses.exclude(id=address.id).update(is_default=False)
+
+        updated_address = serializer.save()
+        if not request.user.addresses.filter(is_default=True).exists():
+            updated_address.is_default = True
+            updated_address.save(update_fields=['is_default'])
+
+        return Response({'address': AddressSerializer(updated_address).data})
+
+    def delete(self, request, address_id):
+        address = self._get_address(request, address_id)
+        if address is None:
+            return Response({'detail': 'Direccion no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+
+        was_default = address.is_default
+        address.delete()
+
+        if was_default:
+            replacement = request.user.addresses.order_by('-updated_at').first()
+            if replacement is not None and not replacement.is_default:
+                replacement.is_default = True
+                replacement.save(update_fields=['is_default'])
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class NotificationPreferenceView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        preference, _ = NotificationPreference.objects.get_or_create(user=request.user)
+        return Response({'notification_preferences': NotificationPreferenceSerializer(preference).data})
+
+    def patch(self, request):
+        preference, _ = NotificationPreference.objects.get_or_create(user=request.user)
+        serializer = NotificationPreferenceSerializer(preference, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({'notification_preferences': serializer.data})
+
+
 class CategoryListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
         categories = Category.objects.all()
-        return Response({'categories': CategorySerializer(categories, many=True).data})
+        return Response({'categories': CategorySerializer(categories, many=True, context={'request': request}).data})
+
+
+class ActiveRaffleListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        now = timezone.now()
+        raffles = Raffle.objects.filter(starts_at__lte=now, ends_at__gte=now)
+        return Response({'raffles': RaffleSerializer(raffles, many=True).data})
 
 
 class ProductListView(APIView):
@@ -227,19 +366,42 @@ class ProductListView(APIView):
         if search:
             queryset = queryset.filter(name__icontains=search)
 
-        cheapest_prices = {
-            row['product_id']: row['min_price']
-            for row in ProductPrice.objects.filter(product__in=queryset)
-            .values('product_id')
-            .annotate(min_price=Min('price'))
-        }
         products_payload = []
         for product in queryset:
-            product_data = ProductSerializer(product).data
-            product_data['best_price'] = str(cheapest_prices.get(product.id)) if product.id in cheapest_prices else None
+            prices = list(product.prices.all())
+            best_option = prices[0] if prices else None
+            product_data = ProductSerializer(product, context={'request': request}).data
+            product_data['prices'] = ProductPriceSerializer(prices, many=True).data
+            product_data['stores_available'] = len(prices)
+            product_data['best_option'] = (
+                {
+                    'store': best_option.store.name,
+                    'price': str(best_option.price),
+                }
+                if best_option
+                else None
+            )
+            product_data['best_price'] = str(best_option.price) if best_option else None
             products_payload.append(product_data)
 
         return Response({'products': products_payload})
+
+
+class RoleChangeRequestListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        role_requests = request.user.role_change_requests.select_related('current_role', 'requested_role')
+        return Response({'requests': RoleChangeRequestSerializer(role_requests, many=True).data})
+
+    def post(self, request):
+        serializer = RoleChangeRequestCreateSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        role_request = serializer.save()
+        return Response(
+            {'request': RoleChangeRequestSerializer(role_request).data},
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ProductPriceComparisonView(APIView):
@@ -270,8 +432,9 @@ class ProductPriceComparisonView(APIView):
         if not prices.exists():
             return Response(
                 {
-                    'product': ProductSerializer(product).data,
+                    'product': ProductSerializer(product, context={'request': request}).data,
                     'prices': [],
+                    'stores_available': 0,
                     'best_option': None,
                     'most_expensive_option': None,
                 }
@@ -283,8 +446,9 @@ class ProductPriceComparisonView(APIView):
 
         return Response(
             {
-                'product': ProductSerializer(product).data,
+                'product': ProductSerializer(product, context={'request': request}).data,
                 'prices': ProductPriceSerializer(prices, many=True).data,
+                'stores_available': prices.count(),
                 'best_option': {
                     'store': best_option.store.name,
                     'price': str(best_option.price),
