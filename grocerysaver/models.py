@@ -4,7 +4,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.validators import FileExtensionValidator
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 
@@ -17,6 +17,11 @@ class RoleChangeRequestStatus(models.TextChoices):
     PENDING = 'pending', 'Pending'
     APPROVED = 'approved', 'Approved'
     REJECTED = 'rejected', 'Rejected'
+
+
+class ProductCodeType(models.TextChoices):
+    BARCODE = 'barcode', 'Barcode'
+    QR = 'qr', 'QR'
 
 
 class Role(models.Model):
@@ -81,6 +86,19 @@ class Product(models.Model):
         return f'{self.name}{brand_label}'
 
 
+class ProductCode(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='codes')
+    code = models.CharField(max_length=120, unique=True)
+    code_type = models.CharField(max_length=20, choices=ProductCodeType.choices, default=ProductCodeType.BARCODE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['code']
+
+    def __str__(self):
+        return f'{self.code_type}:{self.code}'
+
+
 class ProductPrice(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='prices')
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='prices')
@@ -95,6 +113,36 @@ class ProductPrice(models.Model):
 
     def __str__(self):
         return f'{self.product} - {self.store}: {self.price}'
+
+
+class Offer(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='offers')
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='offers')
+    normal_price = models.DecimalField(max_digits=10, decimal_places=2)
+    offer_price = models.DecimalField(max_digits=10, decimal_places=2)
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['offer_price', '-starts_at']
+        constraints = [
+            models.CheckConstraint(condition=Q(offer_price__lte=F('normal_price')), name='offer_price_lte_normal_price'),
+            models.CheckConstraint(condition=Q(ends_at__gte=F('starts_at')), name='offer_ends_after_start'),
+        ]
+
+    @property
+    def is_active(self):
+        now = timezone.now()
+        return self.starts_at <= now <= self.ends_at
+
+    @property
+    def savings(self):
+        return self.normal_price - self.offer_price
+
+    def __str__(self):
+        return f'{self.product} - {self.store}: {self.offer_price}'
 
 
 class EmailVerificationToken(models.Model):

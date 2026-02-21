@@ -1,6 +1,12 @@
+import random
+import string
+import uuid
+
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
+from django.core.exceptions import ValidationError
+from django.forms import BaseInlineFormSet, ModelForm
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html
@@ -10,7 +16,9 @@ from .models import (
     Category,
     EmailVerificationToken,
     NotificationPreference,
+    Offer,
     Product,
+    ProductCode,
     ProductPrice,
     Raffle,
     Role,
@@ -26,6 +34,77 @@ try:
     admin.site.unregister(User)
 except admin.sites.NotRegistered:
     pass
+
+
+def build_ean13_code():
+    base = ''.join(random.choices(string.digits, k=12))
+    total = 0
+    for idx, char in enumerate(base):
+        digit = int(char)
+        total += digit if idx % 2 == 0 else digit * 3
+    check_digit = (10 - (total % 10)) % 10
+    return f'{base}{check_digit}'
+
+
+def build_qr_code():
+    return f'QR-{uuid.uuid4()}'
+
+
+def build_unique_product_code(code_type, reserved_codes=None):
+    reserved = reserved_codes or set()
+    for _ in range(50):
+        candidate = build_qr_code() if code_type == 'qr' else build_ean13_code()
+        if candidate in reserved:
+            continue
+        if not ProductCode.objects.filter(code=candidate).exists():
+            return candidate
+    raise ValidationError('No se pudo generar un codigo unico.')
+
+
+class ProductCodeAutoForm(ModelForm):
+    class Meta:
+        model = ProductCode
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['code'].required = False
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get('DELETE'):
+            return cleaned_data
+
+        code = (cleaned_data.get('code') or '').strip()
+        code_type = cleaned_data.get('code_type') or 'barcode'
+
+        if not code:
+            cleaned_data['code'] = build_unique_product_code(code_type)
+
+        return cleaned_data
+
+
+class ProductCodeInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+
+        used_codes = set()
+        for form in self.forms:
+            if not hasattr(form, 'cleaned_data'):
+                continue
+            cleaned_data = form.cleaned_data
+            if not cleaned_data or cleaned_data.get('DELETE'):
+                continue
+
+            code_type = cleaned_data.get('code_type') or 'barcode'
+            code = (cleaned_data.get('code') or '').strip()
+
+            if not code or code in used_codes:
+                code = build_unique_product_code(code_type, reserved_codes=used_codes)
+                cleaned_data['code'] = code
+                form.instance.code = code
+
+            used_codes.add(code)
 
 
 class UserProfileInline(admin.StackedInline):
@@ -119,12 +198,24 @@ class ProductPriceInline(admin.TabularInline):
     readonly_fields = ('updated_at',)
 
 
+class ProductCodeInline(admin.TabularInline):
+    model = ProductCode
+    form = ProductCodeAutoForm
+    formset = ProductCodeInlineFormSet
+    extra = 0
+    fields = ('code', 'code_type', 'created_at')
+    readonly_fields = ('created_at',)
+
+    class Media:
+        js = ('grocerysaver/admin/product_code_autofill.js',)
+
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     list_display = ('name', 'brand', 'category', 'short_description', 'image_preview', 'best_price', 'stores_with_prices', 'created_at')
     list_filter = ('category', 'prices__store')
     search_fields = ('name', 'brand', 'description', 'category__name')
-    inlines = (ProductPriceInline,)
+    inlines = (ProductPriceInline, ProductCodeInline)
     fields = ('category', 'name', 'brand', 'description', 'image', 'image_preview')
     readonly_fields = ('image_preview',)
 
@@ -169,6 +260,46 @@ class ProductPriceAdmin(admin.ModelAdmin):
     @admin.display(description='Category')
     def category(self, obj):
         return obj.product.category.name
+
+
+@admin.register(ProductCode)
+class ProductCodeAdmin(admin.ModelAdmin):
+    form = ProductCodeAutoForm
+    list_display = ('code', 'code_type', 'product', 'category', 'created_at')
+    list_filter = ('code_type', 'product__category')
+    search_fields = ('code', 'product__name', 'product__brand')
+    list_select_related = ('product__category',)
+
+    class Media:
+        js = ('grocerysaver/admin/product_code_autofill.js',)
+
+    @admin.display(description='Category')
+    def category(self, obj):
+        return obj.product.category.name
+
+
+@admin.register(Offer)
+class OfferAdmin(admin.ModelAdmin):
+    list_display = (
+        'product',
+        'store',
+        'normal_price',
+        'offer_price',
+        'discount_percent',
+        'starts_at',
+        'ends_at',
+        'is_active',
+    )
+    list_filter = ('store', 'product__category')
+    search_fields = ('product__name', 'product__brand', 'store__name')
+    list_select_related = ('product__category', 'store')
+
+    @admin.display(description='Discount')
+    def discount_percent(self, obj):
+        if obj.normal_price == 0:
+            return '0.00%'
+        discount = ((obj.normal_price - obj.offer_price) / obj.normal_price) * 100
+        return f'{discount:.2f}%'
 
 
 @admin.register(EmailVerificationToken)

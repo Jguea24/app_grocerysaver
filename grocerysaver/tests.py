@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -7,13 +8,18 @@ from rest_framework.test import APITestCase
 
 from .models import (
     Address,
+    Category,
     EmailVerificationToken,
     NotificationPreference,
+    Offer,
     Product,
+    ProductCode,
+    ProductPrice,
     Raffle,
     Role,
     RoleChangeRequest,
     SocialAccount,
+    Store,
     UserProfile,
 )
 
@@ -269,6 +275,104 @@ class CatalogComparisonTests(APITestCase):
         self.assertEqual(response.data['savings_vs_most_expensive'], '1.20')
 
 
+class ProductScanEndpointTests(APITestCase):
+    def setUp(self):
+        self.category = Category.objects.create(name='Enlatados')
+        self.store = Store.objects.create(name='Mi Comisariato')
+        self.product = Product.objects.create(
+            category=self.category,
+            name='Atun en agua',
+            brand='Mar Azul',
+            description='Lata de atun 140g',
+        )
+        ProductCode.objects.create(product=self.product, code='7501234567890', code_type='barcode')
+        ProductPrice.objects.create(product=self.product, store=self.store, price='2.10')
+
+    def test_scan_returns_existing_product(self):
+        response = self.client.post(
+            '/api/products/scan/',
+            {'code': '7501234567890'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['matched'])
+        self.assertEqual(response.data['product']['name'], 'Atun en agua')
+        self.assertEqual(response.data['scanned_code']['code'], '7501234567890')
+
+    def test_scan_unknown_code_requires_minimum_fields(self):
+        response = self.client.post(
+            '/api/products/scan/',
+            {'code': '998877665544'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('category_id y name', response.data['detail'])
+
+    def test_scan_unknown_code_creates_product_and_price(self):
+        response = self.client.post(
+            '/api/products/scan/',
+            {
+                'code': '998877665544',
+                'code_type': 'barcode',
+                'category_id': self.category.id,
+                'name': 'Sardina en tomate',
+                'brand': 'Costa',
+                'description': 'Lata 155g',
+                'store_id': self.store.id,
+                'price': '1.65',
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.data['matched'])
+        self.assertTrue(response.data['product_created'])
+        self.assertTrue(response.data['code_created'])
+        self.assertTrue(response.data['price_updated'])
+        self.assertTrue(ProductCode.objects.filter(code='998877665544').exists())
+
+
+class OfferEndpointTests(APITestCase):
+    def setUp(self):
+        self.category = Category.objects.create(name='Lacteos')
+        self.product = Product.objects.create(
+            category=self.category,
+            name='Yogurt Natural',
+            brand='La Vaquita',
+            description='Yogurt natural 1L',
+        )
+        self.store = Store.objects.create(name='SuperMaxi')
+        now = timezone.now()
+
+        Offer.objects.create(
+            product=self.product,
+            store=self.store,
+            normal_price='2.50',
+            offer_price='1.99',
+            starts_at=now - timedelta(days=1),
+            ends_at=now + timedelta(days=1),
+        )
+        Offer.objects.create(
+            product=self.product,
+            store=self.store,
+            normal_price='2.60',
+            offer_price='2.20',
+            starts_at=now - timedelta(days=10),
+            ends_at=now - timedelta(days=5),
+        )
+
+    def test_offers_returns_only_active_by_default(self):
+        response = self.client.get('/api/offers/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['offers'][0]['offer_price'], '1.99')
+        self.assertEqual(response.data['offers'][0]['is_active'], True)
+
+    def test_offers_active_false_includes_expired(self):
+        response = self.client.get('/api/offers/?active=false')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 2)
+
+
 class ProfileMenuEndpointsTests(APITestCase):
     def setUp(self):
         self.cliente_role, _ = Role.objects.get_or_create(name='cliente')
@@ -388,3 +492,71 @@ class ProfileMenuEndpointsTests(APITestCase):
             format='json',
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class WeatherEndpointTests(APITestCase):
+    def test_weather_requires_city_or_coordinates(self):
+        response = self.client.get('/api/weather/')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('city o lat/lon', response.data['detail'])
+
+    def test_weather_rejects_incomplete_coordinates(self):
+        response = self.client.get('/api/weather/?lat=-0.99')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('lat y lon', response.data['detail'])
+
+    @patch('grocerysaver.views.get_weather_payload')
+    def test_weather_by_city(self, mocked_get_weather):
+        mocked_get_weather.return_value = {
+            'provider': 'open-meteo',
+            'location': {'name': 'Tena'},
+            'current': {'temperature_c': 17},
+            'hourly': [],
+            'daily': [],
+        }
+
+        response = self.client.get('/api/weather/?city=Tena')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['provider'], 'open-meteo')
+        self.assertEqual(response.data['location']['name'], 'Tena')
+        mocked_get_weather.assert_called_once_with(city='Tena', latitude=None, longitude=None)
+
+    @patch('grocerysaver.views.get_weather_payload')
+    def test_weather_by_coordinates(self, mocked_get_weather):
+        mocked_get_weather.return_value = {
+            'provider': 'open-meteo',
+            'location': {'name': 'Coordenadas'},
+            'current': {'temperature_c': 20},
+            'hourly': [],
+            'daily': [],
+        }
+
+        response = self.client.get('/api/weather/?lat=-0.99&lon=-77.81')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mocked_get_weather.assert_called_once_with(city=None, latitude=-0.99, longitude=-77.81)
+
+
+class EcuadorGeoCatalogTests(APITestCase):
+    def test_ecuador_geo_returns_country_and_provinces(self):
+        response = self.client.get('/api/geo/ecuador/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['country'], 'Ecuador')
+        self.assertEqual(len(response.data['provinces']), 24)
+
+    def test_ecuador_provinces_summary(self):
+        response = self.client.get('/api/geo/ecuador/provinces/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['country'], 'Ecuador')
+        self.assertEqual(len(response.data['provinces']), 24)
+        self.assertIn('cantons_count', response.data['provinces'][0])
+
+    def test_ecuador_cantons_by_province_id(self):
+        response = self.client.get('/api/geo/ecuador/cantons/?province_id=1')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['province']['name'], 'Azuay')
+        self.assertGreaterEqual(len(response.data['cantons']), 1)
+
+    def test_ecuador_cantons_requires_province(self):
+        response = self.client.get('/api/geo/ecuador/cantons/')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('province_id o province', response.data['detail'])

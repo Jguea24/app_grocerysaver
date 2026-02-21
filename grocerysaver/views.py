@@ -12,7 +12,10 @@ from .models import (
     Category,
     EmailVerificationToken,
     NotificationPreference,
+    Offer,
     Product,
+    ProductCode,
+    ProductCodeType,
     ProductPrice,
     Raffle,
     Role,
@@ -26,7 +29,10 @@ from .serializers import (
     LoginSerializer,
     LogoutSerializer,
     NotificationPreferenceSerializer,
+    OfferSerializer,
+    ProductCodeSerializer,
     ProductPriceSerializer,
+    ProductScanSerializer,
     ProductSerializer,
     RaffleSerializer,
     RegisterSerializer,
@@ -38,6 +44,10 @@ from .serializers import (
 )
 from .services import (
     build_unique_username_from_email,
+    get_ecuador_cantons,
+    get_ecuador_geo_data,
+    get_ecuador_provinces,
+    get_weather_payload,
     issue_jwt_pair,
     send_email_verification,
 )
@@ -185,10 +195,44 @@ class ApiRootView(APIView):
                         'query_params': ['category_id', 'search'],
                     },
                     {
+                        'path': '/api/products/scan/',
+                        'method': 'POST',
+                        'auth_required': False,
+                        'body': ['code', 'code_type?', 'category_id?', 'name?', 'brand?', 'description?', 'store_id?', 'price?'],
+                    },
+                    {
+                        'path': '/api/offers/',
+                        'method': 'GET',
+                        'auth_required': False,
+                        'query_params': ['active', 'store_id', 'product_id', 'category_id', 'search'],
+                    },
+                    {
                         'path': '/api/compare-prices/',
                         'method': 'GET',
                         'auth_required': False,
                         'query_params': ['product_id', 'product'],
+                    },
+                    {
+                        'path': '/api/weather/',
+                        'method': 'GET',
+                        'auth_required': False,
+                        'query_params': ['city', 'lat', 'lon'],
+                    },
+                    {
+                        'path': '/api/geo/ecuador/',
+                        'method': 'GET',
+                        'auth_required': False,
+                    },
+                    {
+                        'path': '/api/geo/ecuador/provinces/',
+                        'method': 'GET',
+                        'auth_required': False,
+                    },
+                    {
+                        'path': '/api/geo/ecuador/cantons/',
+                        'method': 'GET',
+                        'auth_required': False,
+                        'query_params': ['province_id', 'province'],
                     },
                     {
                         'path': '/api/profile/addresses/',
@@ -352,6 +396,78 @@ class ActiveRaffleListView(APIView):
         return Response({'raffles': RaffleSerializer(raffles, many=True).data})
 
 
+class WeatherView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        city = request.query_params.get('city')
+        lat_raw = request.query_params.get('lat')
+        lon_raw = request.query_params.get('lon')
+
+        latitude = None
+        longitude = None
+        if lat_raw is not None or lon_raw is not None:
+            if lat_raw is None or lon_raw is None:
+                return Response(
+                    {'detail': 'Debes enviar ambos query params: lat y lon.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                latitude = float(lat_raw)
+                longitude = float(lon_raw)
+            except (TypeError, ValueError):
+                return Response(
+                    {'detail': 'lat y lon deben ser numeros validos.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            payload = get_weather_payload(city=city, latitude=latitude, longitude=longitude)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response(
+                {'detail': 'No se pudo obtener el clima en este momento.'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(payload)
+
+
+class EcuadorGeoView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        data = get_ecuador_geo_data()
+        return Response(
+            {
+                'country': data.get('country', 'Ecuador'),
+                'provinces': data.get('provinces') or [],
+            }
+        )
+
+
+class EcuadorProvinceListView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        provinces = get_ecuador_provinces()
+        return Response({'country': 'Ecuador', 'provinces': provinces})
+
+
+class EcuadorCantonListView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        province_id = request.query_params.get('province_id')
+        province_name = request.query_params.get('province')
+        try:
+            payload = get_ecuador_cantons(province_id=province_id, province_name=province_name)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
+
+
 class ProductListView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -385,6 +501,135 @@ class ProductListView(APIView):
             products_payload.append(product_data)
 
         return Response({'products': products_payload})
+
+
+class ProductScanView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def _build_product_payload(self, product, request):
+        prices = product.prices.select_related('store').order_by('price')
+        best_option = prices.first()
+        payload = ProductSerializer(product, context={'request': request}).data
+        payload['prices'] = ProductPriceSerializer(prices, many=True).data
+        payload['codes'] = ProductCodeSerializer(product.codes.all(), many=True).data
+        payload['stores_available'] = prices.count()
+        payload['best_option'] = (
+            {
+                'store': best_option.store.name,
+                'price': str(best_option.price),
+            }
+            if best_option
+            else None
+        )
+        payload['best_price'] = str(best_option.price) if best_option else None
+        return payload
+
+    def post(self, request):
+        serializer = ProductScanSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        code = data['code']
+        code_row = ProductCode.objects.select_related('product__category').filter(code=code).first()
+
+        if code_row is None:
+            category_id = data.get('category_id')
+            name = data.get('name', '').strip()
+            if not category_id or not name:
+                return Response(
+                    {'detail': 'Codigo no registrado. Envia category_id y name para crear el producto.'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            category = Category.objects.filter(id=category_id).first()
+            if category is None:
+                return Response({'detail': 'Categoria no encontrada.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            product, product_created = Product.objects.get_or_create(
+                category=category,
+                name=name,
+                brand=data.get('brand', ''),
+                defaults={'description': data.get('description', '')},
+            )
+            code_row = ProductCode.objects.create(
+                product=product,
+                code=code,
+                code_type=data.get('code_type') or ProductCodeType.BARCODE,
+            )
+            code_created = True
+        else:
+            product = code_row.product
+            product_created = False
+            code_created = False
+
+        price_updated = False
+        store_id = data.get('store_id')
+        price = data.get('price')
+        if store_id is not None and price is not None:
+            store = Store.objects.filter(id=store_id).first()
+            if store is None:
+                return Response({'detail': 'Tienda no encontrada.'}, status=status.HTTP_400_BAD_REQUEST)
+            ProductPrice.objects.update_or_create(
+                product=product,
+                store=store,
+                defaults={'price': price},
+            )
+            price_updated = True
+
+        status_code = status.HTTP_201_CREATED if code_created else status.HTTP_200_OK
+        return Response(
+            {
+                'matched': not code_created,
+                'product_created': product_created,
+                'code_created': code_created,
+                'price_updated': price_updated,
+                'scanned_code': ProductCodeSerializer(code_row).data,
+                'product': self._build_product_payload(product, request),
+            },
+            status=status_code,
+        )
+
+
+class OfferListView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        queryset = Offer.objects.select_related('product__category', 'store')
+
+        active_param = (request.query_params.get('active') or 'true').strip().lower()
+        if active_param in {'true', '1', 'yes', 'on'}:
+            now = timezone.now()
+            queryset = queryset.filter(starts_at__lte=now, ends_at__gte=now)
+        elif active_param in {'false', '0', 'no', 'off'}:
+            pass
+        else:
+            return Response(
+                {'detail': 'Parametro active invalido. Usa true o false.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        store_id = request.query_params.get('store_id')
+        product_id = request.query_params.get('product_id')
+        category_id = request.query_params.get('category_id')
+        search = request.query_params.get('search')
+
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+        if category_id:
+            queryset = queryset.filter(product__category_id=category_id)
+        if search:
+            queryset = queryset.filter(product__name__icontains=search)
+
+        serialized = OfferSerializer(queryset, many=True, context={'request': request}).data
+        return Response(
+            {
+                'count': len(serialized),
+                'offers': serialized,
+                'results': serialized,
+            }
+        )
 
 
 class RoleChangeRequestListCreateView(APIView):

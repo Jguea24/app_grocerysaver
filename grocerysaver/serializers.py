@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.contrib.auth import authenticate, get_user_model
 from django.utils import timezone
 from rest_framework import serializers
@@ -6,7 +8,10 @@ from .models import (
     Address,
     Category,
     NotificationPreference,
+    Offer,
     Product,
+    ProductCode,
+    ProductCodeType,
     ProductPrice,
     Raffle,
     Role,
@@ -214,6 +219,77 @@ class ProductPriceSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductPrice
         fields = ['store', 'price', 'updated_at']
+
+
+class ProductCodeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductCode
+        fields = ['code', 'code_type']
+
+
+class ProductScanSerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=120)
+    code_type = serializers.ChoiceField(choices=ProductCodeType.values, required=False)
+    category_id = serializers.IntegerField(required=False)
+    name = serializers.CharField(required=False, max_length=120)
+    brand = serializers.CharField(required=False, allow_blank=True, max_length=120)
+    description = serializers.CharField(required=False, allow_blank=True, default='')
+    store_id = serializers.IntegerField(required=False)
+    price = serializers.DecimalField(
+        required=False,
+        max_digits=10,
+        decimal_places=2,
+        min_value=Decimal('0.01'),
+    )
+
+    def validate_code(self, value):
+        code = value.strip()
+        if not code:
+            raise serializers.ValidationError('El codigo no puede estar vacio.')
+        return code
+
+    def validate(self, attrs):
+        has_store = 'store_id' in attrs
+        has_price = 'price' in attrs
+        if has_store != has_price:
+            raise serializers.ValidationError('Debes enviar store_id y price juntos.')
+        return attrs
+
+
+class OfferSerializer(serializers.ModelSerializer):
+    product = ProductSerializer(read_only=True)
+    store = StoreSerializer(read_only=True)
+    is_active = serializers.SerializerMethodField()
+    savings = serializers.SerializerMethodField()
+    discount_percent = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Offer
+        fields = [
+            'id',
+            'product',
+            'store',
+            'normal_price',
+            'offer_price',
+            'savings',
+            'discount_percent',
+            'starts_at',
+            'ends_at',
+            'is_active',
+            'updated_at',
+        ]
+
+    def get_is_active(self, obj):
+        return obj.is_active
+
+    def get_savings(self, obj):
+        return str(obj.savings)
+
+    def get_discount_percent(self, obj):
+        if obj.normal_price == 0:
+            return '0.00'
+        discount = ((obj.normal_price - obj.offer_price) / obj.normal_price) * 100
+        return f'{discount:.2f}'
 
 
 class RoleChangeRequestSerializer(serializers.ModelSerializer):

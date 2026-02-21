@@ -1,0 +1,1033 @@
+{
+  "country": "Ecuador",
+  "provinces": [
+    {
+      "id": 1,
+      "name": "Azuay",
+      "cantons": [
+        {
+          "id": 101,
+          "name": "Cuenca"
+        },
+        {
+          "id": 102,
+          "name": "Gir\u00f3n"
+        },
+        {
+          "id": 103,
+          "name": "Gualaceo"
+        },
+        {
+          "id": 104,
+          "name": "Nab\u00f3n"
+        },
+        {
+          "id": 105,
+          "name": "Paute"
+        },
+        {
+          "id": 106,
+          "name": "Pucara"
+        },
+        {
+          "id": 107,
+          "name": "San Fernando"
+        },
+        {
+          "id": 108,
+          "name": "Santa Isabel"
+        },
+        {
+          "id": 109,
+          "name": "Sigsig"
+        },
+        {
+          "id": 110,
+          "name": "O\u00f1a"
+        },
+        {
+          "id": 111,
+          "name": "Chordeleg"
+        },
+        {
+          "id": 112,
+          "name": "El Pan"
+        },
+        {
+          "id": 113,
+          "name": "Sevilla De Oro"
+        },
+        {
+          "id": 114,
+          "name": "Guachapala"
+        },
+        {
+          "id": 115,
+          "name": "Camilo Ponce Enr\u00edquez"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Bolivar",
+      "cantons": [
+        {
+          "id": 201,
+          "name": "Guaranda"
+        },
+        {
+          "id": 202,
+          "name": "Chillanes"
+        },
+        {
+          "id": 203,
+          "name": "Chimbo"
+        },
+        {
+          "id": 204,
+          "name": "Echeand\u00eda"
+        },
+        {
+          "id": 205,
+          "name": "San Miguel"
+        },
+        {
+          "id": 206,
+          "name": "Caluma"
+        },
+        {
+          "id": 207,
+          "name": "Las Naves"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Ca\u00f1ar",
+      "cantons": [
+        {
+          "id": 301,
+          "name": "Azogues"
+        },
+        {
+          "id": 302,
+          "name": "Bibli\u00e1n"
+        },
+        {
+          "id": 303,
+          "name": "Ca\u00f1ar"
+        },
+        {
+          "id": 304,
+          "name": "La Troncal"
+        },
+        {
+          "id": 305,
+          "name": "El Tambo"
+        },
+        {
+          "id": 306,
+          "name": "D\u00e9leg"
+        },
+        {
+          "id": 307,
+          "name": "Suscal"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Carchi",
+      "cantons": [
+        {
+          "id": 401,
+          "name": "Tulc\u00e1n"
+        },
+        {
+          "id": 402,
+          "name": "Bol\u00edvar"
+        },
+        {
+          "id": 403,
+          "name": "Espejo"
+        },
+        {
+          "id": 404,
+          "name": "Mira"
+        },
+        {
+          "id": 405,
+          "name": "Mont\u00fafar"
+        },
+        {
+          "id": 406,
+          "name": "San Pedro De Huaca"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Cotopaxi",
+      "cantons": [
+        {
+          "id": 501,
+          "name": "Latacunga"
+        },
+        {
+          "id": 502,
+          "name": "La Man\u00e1"
+        },
+        {
+          "id": 503,
+          "name": "Pangua"
+        },
+        {
+          "id": 504,
+          "name": "Pujili"
+        },
+        {
+          "id": 505,
+          "name": "Salcedo"
+        },
+        {
+          "id": 506,
+          "name": "Saquisil\u00ed"
+        },
+        {
+          "id": 507,
+          "name": "Sigchos"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Chimborazo",
+      "cantons": [
+        {
+          "id": 601,
+          "name": "Riobamba"
+        },
+        {
+          "id": 602,
+          "name": "Alausi"
+        },
+        {
+          "id": 603,
+          "name": "Colta"
+        },
+        {
+          "id": 604,
+          "name": "Chambo"
+        },
+        {
+          "id": 605,
+          "name": "Chunchi"
+        },
+        {
+          "id": 606,
+          "name": "Guamote"
+        },
+        {
+          "id": 607,
+          "name": "Guano"
+        },
+        {
+          "id": 608,
+          "name": "Pallatanga"
+        },
+        {
+          "id": 609,
+          "name": "Penipe"
+        },
+        {
+          "id": 610,
+          "name": "Cumand\u00e1"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "El Oro",
+      "cantons": [
+        {
+          "id": 701,
+          "name": "Machala"
+        },
+        {
+          "id": 702,
+          "name": "Arenillas"
+        },
+        {
+          "id": 703,
+          "name": "Atahualpa"
+        },
+        {
+          "id": 704,
+          "name": "Balsas"
+        },
+        {
+          "id": 705,
+          "name": "Chilla"
+        },
+        {
+          "id": 706,
+          "name": "El Guabo"
+        },
+        {
+          "id": 707,
+          "name": "Huaquillas"
+        },
+        {
+          "id": 708,
+          "name": "Marcabel\u00ed"
+        },
+        {
+          "id": 709,
+          "name": "Pasaje"
+        },
+        {
+          "id": 710,
+          "name": "Pi\u00f1as"
+        },
+        {
+          "id": 711,
+          "name": "Portovelo"
+        },
+        {
+          "id": 712,
+          "name": "Santa Rosa"
+        },
+        {
+          "id": 713,
+          "name": "Zaruma"
+        },
+        {
+          "id": 714,
+          "name": "Las Lajas"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "Esmeraldas",
+      "cantons": [
+        {
+          "id": 801,
+          "name": "Esmeraldas"
+        },
+        {
+          "id": 802,
+          "name": "Eloy Alfaro"
+        },
+        {
+          "id": 803,
+          "name": "Muisne"
+        },
+        {
+          "id": 804,
+          "name": "Quinind\u00e9"
+        },
+        {
+          "id": 805,
+          "name": "San Lorenzo"
+        },
+        {
+          "id": 806,
+          "name": "Atacames"
+        },
+        {
+          "id": 807,
+          "name": "Rioverde"
+        },
+        {
+          "id": 808,
+          "name": "La Concordia"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "Guayas",
+      "cantons": [
+        {
+          "id": 901,
+          "name": "Guayaquil"
+        },
+        {
+          "id": 902,
+          "name": "Alfredo Baquerizo Moreno (Juj\u00e1n)"
+        },
+        {
+          "id": 903,
+          "name": "Balao"
+        },
+        {
+          "id": 904,
+          "name": "Balzar"
+        },
+        {
+          "id": 905,
+          "name": "Colimes"
+        },
+        {
+          "id": 906,
+          "name": "Daule"
+        },
+        {
+          "id": 907,
+          "name": "Dur\u00e1n"
+        },
+        {
+          "id": 908,
+          "name": "El Empalme"
+        },
+        {
+          "id": 909,
+          "name": "El Triunfo"
+        },
+        {
+          "id": 910,
+          "name": "Milagro"
+        },
+        {
+          "id": 911,
+          "name": "Naranjal"
+        },
+        {
+          "id": 912,
+          "name": "Naranjito"
+        },
+        {
+          "id": 913,
+          "name": "Palestina"
+        },
+        {
+          "id": 914,
+          "name": "Pedro Carbo"
+        },
+        {
+          "id": 916,
+          "name": "Samborond\u00f3n"
+        },
+        {
+          "id": 918,
+          "name": "Santa Luc\u00eda"
+        },
+        {
+          "id": 919,
+          "name": "Salitre (Urbina Jado)"
+        },
+        {
+          "id": 920,
+          "name": "San Jacinto De Yaguachi"
+        },
+        {
+          "id": 921,
+          "name": "Playas"
+        },
+        {
+          "id": 922,
+          "name": "Sim\u00f3n Bol\u00edvar"
+        },
+        {
+          "id": 923,
+          "name": "Coronel Marcelino Maridue\u00f1a"
+        },
+        {
+          "id": 924,
+          "name": "Lomas De Sargentillo"
+        },
+        {
+          "id": 925,
+          "name": "Nobol"
+        },
+        {
+          "id": 927,
+          "name": "General Antonio Elizalde"
+        },
+        {
+          "id": 928,
+          "name": "Isidro Ayora"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "Imbabura",
+      "cantons": [
+        {
+          "id": 1001,
+          "name": "Ibarra"
+        },
+        {
+          "id": 1002,
+          "name": "Antonio Ante"
+        },
+        {
+          "id": 1003,
+          "name": "Cotacachi"
+        },
+        {
+          "id": 1004,
+          "name": "Otavalo"
+        },
+        {
+          "id": 1005,
+          "name": "Pimampiro"
+        },
+        {
+          "id": 1006,
+          "name": "San Miguel De Urcuqu\u00ed"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "Loja",
+      "cantons": [
+        {
+          "id": 1101,
+          "name": "Loja"
+        },
+        {
+          "id": 1102,
+          "name": "Calvas"
+        },
+        {
+          "id": 1103,
+          "name": "Catamayo"
+        },
+        {
+          "id": 1104,
+          "name": "Celica"
+        },
+        {
+          "id": 1105,
+          "name": "Chaguarpamba"
+        },
+        {
+          "id": 1106,
+          "name": "Esp\u00edndola"
+        },
+        {
+          "id": 1107,
+          "name": "Gonzanam\u00e1"
+        },
+        {
+          "id": 1108,
+          "name": "Macar\u00e1"
+        },
+        {
+          "id": 1109,
+          "name": "Paltas"
+        },
+        {
+          "id": 1110,
+          "name": "Puyango"
+        },
+        {
+          "id": 1111,
+          "name": "Saraguro"
+        },
+        {
+          "id": 1112,
+          "name": "Sozoranga"
+        },
+        {
+          "id": 1113,
+          "name": "Zapotillo"
+        },
+        {
+          "id": 1114,
+          "name": "Pindal"
+        },
+        {
+          "id": 1115,
+          "name": "Quilanga"
+        },
+        {
+          "id": 1116,
+          "name": "Olmedo"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "Los Rios",
+      "cantons": [
+        {
+          "id": 1201,
+          "name": "Babahoyo"
+        },
+        {
+          "id": 1202,
+          "name": "Baba"
+        },
+        {
+          "id": 1203,
+          "name": "Montalvo"
+        },
+        {
+          "id": 1204,
+          "name": "Puebloviejo"
+        },
+        {
+          "id": 1205,
+          "name": "Quevedo"
+        },
+        {
+          "id": 1206,
+          "name": "Urdaneta"
+        },
+        {
+          "id": 1207,
+          "name": "Ventanas"
+        },
+        {
+          "id": 1208,
+          "name": "V\u00ednces"
+        },
+        {
+          "id": 1209,
+          "name": "Palenque"
+        },
+        {
+          "id": 1210,
+          "name": "Buena F\u00e9"
+        },
+        {
+          "id": 1211,
+          "name": "Valencia"
+        },
+        {
+          "id": 1212,
+          "name": "Mocache"
+        },
+        {
+          "id": 1213,
+          "name": "Quinsaloma"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "name": "Manabi",
+      "cantons": [
+        {
+          "id": 1301,
+          "name": "Portoviejo"
+        },
+        {
+          "id": 1302,
+          "name": "Bol\u00edvar"
+        },
+        {
+          "id": 1303,
+          "name": "Chone"
+        },
+        {
+          "id": 1304,
+          "name": "El Carmen"
+        },
+        {
+          "id": 1305,
+          "name": "Flavio Alfaro"
+        },
+        {
+          "id": 1306,
+          "name": "Jipijapa"
+        },
+        {
+          "id": 1307,
+          "name": "Jun\u00edn"
+        },
+        {
+          "id": 1308,
+          "name": "Manta"
+        },
+        {
+          "id": 1309,
+          "name": "Montecristi"
+        },
+        {
+          "id": 1310,
+          "name": "Paj\u00e1n"
+        },
+        {
+          "id": 1311,
+          "name": "Pichincha"
+        },
+        {
+          "id": 1312,
+          "name": "Rocafuerte"
+        },
+        {
+          "id": 1313,
+          "name": "Santa Ana"
+        },
+        {
+          "id": 1314,
+          "name": "Sucre"
+        },
+        {
+          "id": 1315,
+          "name": "Tosagua"
+        },
+        {
+          "id": 1316,
+          "name": "24 De Mayo"
+        },
+        {
+          "id": 1317,
+          "name": "Pedernales"
+        },
+        {
+          "id": 1318,
+          "name": "Olmedo"
+        },
+        {
+          "id": 1319,
+          "name": "Puerto L\u00f3pez"
+        },
+        {
+          "id": 1320,
+          "name": "Jama"
+        },
+        {
+          "id": 1321,
+          "name": "Jaramij\u00f3"
+        },
+        {
+          "id": 1322,
+          "name": "San Vicente"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "Morona Santiago",
+      "cantons": [
+        {
+          "id": 1401,
+          "name": "Morona"
+        },
+        {
+          "id": 1402,
+          "name": "Gualaquiza"
+        },
+        {
+          "id": 1403,
+          "name": "Lim\u00f3n Indanza"
+        },
+        {
+          "id": 1404,
+          "name": "Palora"
+        },
+        {
+          "id": 1405,
+          "name": "Santiago"
+        },
+        {
+          "id": 1406,
+          "name": "Suc\u00faa"
+        },
+        {
+          "id": 1407,
+          "name": "Huamboya"
+        },
+        {
+          "id": 1408,
+          "name": "San Juan Bosco"
+        },
+        {
+          "id": 1409,
+          "name": "Taisha"
+        },
+        {
+          "id": 1410,
+          "name": "Logro\u00f1o"
+        },
+        {
+          "id": 1411,
+          "name": "Pablo Sexto"
+        },
+        {
+          "id": 1412,
+          "name": "Tiwintza"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "name": "Napo",
+      "cantons": [
+        {
+          "id": 1501,
+          "name": "Tena"
+        },
+        {
+          "id": 1503,
+          "name": "Archidona"
+        },
+        {
+          "id": 1504,
+          "name": "El Chaco"
+        },
+        {
+          "id": 1507,
+          "name": "Quijos"
+        },
+        {
+          "id": 1509,
+          "name": "Carlos Julio Arosemena Tola"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "name": "Pastaza",
+      "cantons": [
+        {
+          "id": 1601,
+          "name": "Pastaza"
+        },
+        {
+          "id": 1602,
+          "name": "Mera"
+        },
+        {
+          "id": 1603,
+          "name": "Santa Clara"
+        },
+        {
+          "id": 1604,
+          "name": "Arajuno"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "name": "Pichincha",
+      "cantons": [
+        {
+          "id": 1701,
+          "name": "Quito"
+        },
+        {
+          "id": 1702,
+          "name": "Cayambe"
+        },
+        {
+          "id": 1703,
+          "name": "Mejia"
+        },
+        {
+          "id": 1704,
+          "name": "Pedro Moncayo"
+        },
+        {
+          "id": 1705,
+          "name": "Rumi\u00f1ahui"
+        },
+        {
+          "id": 1707,
+          "name": "San Miguel De Los Bancos"
+        },
+        {
+          "id": 1708,
+          "name": "Pedro Vicente Maldonado"
+        },
+        {
+          "id": 1709,
+          "name": "Puerto Quito"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "name": "Tungurahua",
+      "cantons": [
+        {
+          "id": 1801,
+          "name": "Ambato"
+        },
+        {
+          "id": 1802,
+          "name": "Ba\u00f1os De Agua Santa"
+        },
+        {
+          "id": 1803,
+          "name": "Cevallos"
+        },
+        {
+          "id": 1804,
+          "name": "Mocha"
+        },
+        {
+          "id": 1805,
+          "name": "Patate"
+        },
+        {
+          "id": 1806,
+          "name": "Quero"
+        },
+        {
+          "id": 1807,
+          "name": "San Pedro De Pelileo"
+        },
+        {
+          "id": 1808,
+          "name": "Santiago De P\u00edllaro"
+        },
+        {
+          "id": 1809,
+          "name": "Tisaleo"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "name": "Zamora Chinchipe",
+      "cantons": [
+        {
+          "id": 1901,
+          "name": "Zamora"
+        },
+        {
+          "id": 1902,
+          "name": "Chinchipe"
+        },
+        {
+          "id": 1903,
+          "name": "Nangaritza"
+        },
+        {
+          "id": 1904,
+          "name": "Yacuambi"
+        },
+        {
+          "id": 1905,
+          "name": "Yantzaza (Yanzatza)"
+        },
+        {
+          "id": 1906,
+          "name": "El Pangui"
+        },
+        {
+          "id": 1907,
+          "name": "Centinela Del C\u00f3ndor"
+        },
+        {
+          "id": 1908,
+          "name": "Palanda"
+        },
+        {
+          "id": 1909,
+          "name": "Paquisha"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "name": "Galapagos",
+      "cantons": [
+        {
+          "id": 2001,
+          "name": "San Crist\u00f3bal"
+        },
+        {
+          "id": 2002,
+          "name": "Isabela"
+        },
+        {
+          "id": 2003,
+          "name": "Santa Cruz"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "name": "Sucumbios",
+      "cantons": [
+        {
+          "id": 2101,
+          "name": "Lago Agrio"
+        },
+        {
+          "id": 2102,
+          "name": "Gonzalo Pizarro"
+        },
+        {
+          "id": 2103,
+          "name": "Putumayo"
+        },
+        {
+          "id": 2104,
+          "name": "Shushufindi"
+        },
+        {
+          "id": 2105,
+          "name": "Sucumb\u00edos"
+        },
+        {
+          "id": 2106,
+          "name": "Cascales"
+        },
+        {
+          "id": 2107,
+          "name": "Cuyabeno"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "name": "Orellana",
+      "cantons": [
+        {
+          "id": 2201,
+          "name": "Orellana"
+        },
+        {
+          "id": 2202,
+          "name": "Aguarico"
+        },
+        {
+          "id": 2203,
+          "name": "La Joya De Los Sachas"
+        },
+        {
+          "id": 2204,
+          "name": "Loreto"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "name": "Santo Domingo De Los Tsachilas",
+      "cantons": [
+        {
+          "id": 2301,
+          "name": "Santo Domingo"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "name": "Santa Elena",
+      "cantons": [
+        {
+          "id": 2401,
+          "name": "Santa Elena"
+        },
+        {
+          "id": 2402,
+          "name": "La Libertad"
+        },
+        {
+          "id": 2403,
+          "name": "Salinas"
+        }
+      ]
+    }
+  ]
+}
