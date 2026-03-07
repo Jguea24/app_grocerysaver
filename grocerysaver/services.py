@@ -1,4 +1,5 @@
 import re
+import uuid
 from functools import lru_cache
 from json import JSONDecodeError, loads
 from pathlib import Path
@@ -12,6 +13,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .models import ProductCode, ProductCodeType
 
 User = get_user_model()
 
@@ -54,6 +56,34 @@ WEATHER_CODE_LABELS = {
 
 BASE_DIR = Path(__file__).resolve().parent
 ECUADOR_GEO_PATH = BASE_DIR / 'data' / 'ecuador_geo.json'
+
+
+def build_qr_code_value():
+    return f'QR-{uuid.uuid4()}'
+
+
+def build_unique_qr_code(reserved_codes=None):
+    reserved = reserved_codes or set()
+    for _ in range(50):
+        candidate = build_qr_code_value()
+        if candidate in reserved:
+            continue
+        if not ProductCode.objects.filter(code=candidate).exists():
+            return candidate
+    raise DjangoValidationError('No se pudo generar un codigo QR unico.')
+
+
+def ensure_product_qr_code(product):
+    if product is None:
+        return None
+    existing = product.codes.filter(code_type=ProductCodeType.QR).first()
+    if existing is not None:
+        return existing
+    return ProductCode.objects.create(
+        product=product,
+        code=build_unique_qr_code(),
+        code_type=ProductCodeType.QR,
+    )
 
 
 def build_unique_username_from_email(email):

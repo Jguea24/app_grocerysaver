@@ -2,12 +2,16 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APIRequestFactory, APITestCase
 
 from .models import (
     Address,
+    BackgroundJob,
     Category,
     EmailVerificationToken,
     NotificationPreference,
@@ -22,6 +26,8 @@ from .models import (
     Store,
     UserProfile,
 )
+from .job_queue import process_next_job
+from .serializers import ProductSerializer
 
 
 class AuthFlowTests(APITestCase):
@@ -248,6 +254,9 @@ class AuthFlowTests(APITestCase):
 
 
 class CatalogComparisonTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+
     def test_store_category_and_product_list_endpoints(self):
         stores_response = self.client.get('/api/stores/')
         self.assertEqual(stores_response.status_code, status.HTTP_200_OK)
@@ -277,6 +286,7 @@ class CatalogComparisonTests(APITestCase):
 
 class ProductScanEndpointTests(APITestCase):
     def setUp(self):
+        cache.clear()
         self.category = Category.objects.create(name='Enlatados')
         self.store = Store.objects.create(name='Mi Comisariato')
         self.product = Product.objects.create(
@@ -333,7 +343,8 @@ class ProductScanEndpointTests(APITestCase):
 
 class OfferEndpointTests(APITestCase):
     def setUp(self):
-        self.category = Category.objects.create(name='Lacteos')
+        cache.clear()
+        self.category = Category.objects.create(name='Lacteos Test Offers')
         self.product = Product.objects.create(
             category=self.category,
             name='Yogurt Natural',
@@ -375,6 +386,7 @@ class OfferEndpointTests(APITestCase):
 
 class ProfileMenuEndpointsTests(APITestCase):
     def setUp(self):
+        cache.clear()
         self.cliente_role, _ = Role.objects.get_or_create(name='cliente')
         self.admin_role, _ = Role.objects.get_or_create(name='admin')
         user_model = get_user_model()
@@ -495,6 +507,9 @@ class ProfileMenuEndpointsTests(APITestCase):
 
 
 class WeatherEndpointTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+
     def test_weather_requires_city_or_coordinates(self):
         response = self.client.get('/api/weather/')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -535,8 +550,29 @@ class WeatherEndpointTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mocked_get_weather.assert_called_once_with(city=None, latitude=-0.99, longitude=-77.81)
 
+    @patch('grocerysaver.views.get_weather_payload')
+    def test_weather_cache_hits_for_same_query(self, mocked_get_weather):
+        mocked_get_weather.return_value = {
+            'provider': 'open-meteo',
+            'location': {'name': 'Tena'},
+            'current': {'temperature_c': 18},
+            'hourly': [],
+            'daily': [],
+        }
+
+        first_response = self.client.get('/api/weather/?city=Tena')
+        second_response = self.client.get('/api/weather/?city=Tena')
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(first_response['X-Cache-Status'], 'MISS')
+        self.assertEqual(second_response['X-Cache-Status'], 'HIT')
+        mocked_get_weather.assert_called_once_with(city='Tena', latitude=None, longitude=None)
+
 
 class EcuadorGeoCatalogTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+
     def test_ecuador_geo_returns_country_and_provinces(self):
         response = self.client.get('/api/geo/ecuador/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -560,3 +596,103 @@ class EcuadorGeoCatalogTests(APITestCase):
         response = self.client.get('/api/geo/ecuador/cantons/')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('province_id o province', response.data['detail'])
+
+
+class CacheInvalidationTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_categories_cache_invalidates_after_catalog_change(self):
+        Category.objects.create(name='Limpieza')
+
+        first_response = self.client.get('/api/categories/')
+        second_response = self.client.get('/api/categories/')
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(first_response['X-Cache-Status'], 'MISS')
+        self.assertEqual(second_response['X-Cache-Status'], 'HIT')
+
+        Category.objects.create(name='Mascotas')
+
+        third_response = self.client.get('/api/categories/')
+        self.assertEqual(third_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(third_response['X-Cache-Status'], 'MISS')
+        self.assertTrue(any(category['name'] == 'Mascotas' for category in third_response.data['categories']))
+
+
+class DataLoaderTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.factory = APIRequestFactory()
+        self.category = Category.objects.create(name='Bebidas calientes')
+
+        for index in range(3):
+            Product.objects.create(
+                category=self.category,
+                name=f'Café {index}',
+                brand='Andes',
+                description='Bolsa 250g',
+            )
+
+    def test_product_serializer_batches_and_caches_qr_codes_per_request(self):
+        request = self.factory.get('/api/products/')
+        products = list(
+            Product.objects.select_related('category')
+            .filter(category=self.category)
+            .order_by('id')
+        )
+
+        with CaptureQueriesContext(connection) as context:
+            first_payload = ProductSerializer(products, many=True, context={'request': request}).data
+            second_payload = ProductSerializer(products, many=True, context={'request': request}).data
+
+        product_code_queries = [
+            query['sql']
+            for query in context.captured_queries
+            if 'grocerysaver_productcode' in query['sql'].lower()
+        ]
+
+        self.assertEqual(len(first_payload), 3)
+        self.assertEqual(len(second_payload), 3)
+        self.assertEqual(len(product_code_queries), 1)
+
+
+class BackgroundJobEndpointTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.user = get_user_model().objects.create_user(
+            username='jobs.user',
+            email='jobs@example.com',
+            password='TestPass123!@#',
+            is_active=True,
+        )
+        self.client.force_authenticate(user=self.user)
+
+        category = Category.objects.create(name='Snacks')
+        Product.objects.create(
+            category=category,
+            name='Papas clasicas',
+            brand='Andinas',
+            description='Bolsa 100g',
+        )
+
+    def test_enqueue_export_job_returns_accepted(self):
+        response = self.client.post('/api/jobs/export-products/', {}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.data['job']['status'], 'queued')
+        self.assertEqual(BackgroundJob.objects.count(), 1)
+
+    def test_job_detail_reports_completed_result(self):
+        enqueue_response = self.client.post('/api/jobs/export-products/', {}, format='json')
+        job_id = enqueue_response.data['job']['job_id']
+
+        processed_job = process_next_job()
+        self.assertIsNotNone(processed_job)
+        self.assertEqual(processed_job.status, 'completed')
+
+        detail_response = self.client.get(f'/api/jobs/{job_id}/')
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(detail_response.data['is_finished'])
+        self.assertEqual(detail_response.data['job']['status'], 'completed')
+        self.assertIn('file_name', detail_response.data['job']['result'])

@@ -1,6 +1,7 @@
 import random
 import string
 import uuid
+from urllib.parse import quote
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
@@ -19,6 +20,7 @@ from .models import (
     Offer,
     Product,
     ProductCode,
+    ProductCodeType,
     ProductPrice,
     Raffle,
     Role,
@@ -59,6 +61,12 @@ def build_unique_product_code(code_type, reserved_codes=None):
         if not ProductCode.objects.filter(code=candidate).exists():
             return candidate
     raise ValidationError('No se pudo generar un codigo unico.')
+
+
+def build_qr_image_url(code, size=96):
+    if not code:
+        return ''
+    return f'https://api.qrserver.com/v1/create-qr-code/?size={size}x{size}&data={quote(code)}'
 
 
 class ProductCodeAutoForm(ModelForm):
@@ -212,7 +220,18 @@ class ProductCodeInline(admin.TabularInline):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('name', 'brand', 'category', 'short_description', 'image_preview', 'best_price', 'stores_with_prices', 'created_at')
+    list_display = (
+        'name',
+        'brand',
+        'category',
+        'short_description',
+        'image_preview',
+        'qr_code',
+        'qr_image',
+        'best_price',
+        'stores_with_prices',
+        'created_at',
+    )
     list_filter = ('category', 'prices__store')
     search_fields = ('name', 'brand', 'description', 'category__name')
     inlines = (ProductPriceInline, ProductCodeInline)
@@ -221,7 +240,7 @@ class ProductAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)
-        return queryset.select_related('category').prefetch_related('prices__store')
+        return queryset.select_related('category').prefetch_related('prices__store', 'codes')
 
     @admin.display(description='Best Price')
     def best_price(self, obj):
@@ -242,6 +261,18 @@ class ProductAdmin(admin.ModelAdmin):
             return '-'
         return obj.description[:60] + ('...' if len(obj.description) > 60 else '')
 
+    @admin.display(description='QR')
+    def qr_code(self, obj):
+        code_row = obj.codes.filter(code_type='qr').first()
+        return code_row.code if code_row else '-'
+
+    @admin.display(description='QR Img')
+    def qr_image(self, obj):
+        code_row = obj.codes.filter(code_type='qr').first()
+        if not code_row:
+            return '-'
+        url = build_qr_image_url(code_row.code, size=80)
+        return format_html('<img src="{}" style="height:60px; width:60px;" />', url)
     @admin.display(description='Stores / Prices')
     def stores_with_prices(self, obj):
         prices = list(obj.prices.all())
@@ -265,7 +296,7 @@ class ProductPriceAdmin(admin.ModelAdmin):
 @admin.register(ProductCode)
 class ProductCodeAdmin(admin.ModelAdmin):
     form = ProductCodeAutoForm
-    list_display = ('code', 'code_type', 'product', 'category', 'created_at')
+    list_display = ('code', 'code_type', 'qr_image', 'product', 'category', 'created_at')
     list_filter = ('code_type', 'product__category')
     search_fields = ('code', 'product__name', 'product__brand')
     list_select_related = ('product__category',)
@@ -276,6 +307,13 @@ class ProductCodeAdmin(admin.ModelAdmin):
     @admin.display(description='Category')
     def category(self, obj):
         return obj.product.category.name
+
+    @admin.display(description='QR Img')
+    def qr_image(self, obj):
+        if obj.code_type != ProductCodeType.QR:
+            return '-'
+        url = build_qr_image_url(obj.code, size=80)
+        return format_html('<img src="{}" style="height:60px; width:60px;" />', url)
 
 
 @admin.register(Offer)

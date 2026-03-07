@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -101,3 +102,29 @@ CORS_ALLOW_ALL_ORIGINS = True
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 DEFAULT_FROM_EMAIL = 'no-reply@grocerysaver.local'
 EMAIL_VERIFICATION_TOKEN_TTL_HOURS = 24
+
+CACHE_DEFAULT_TTL = int(os.getenv('CACHE_DEFAULT_TTL', '120'))
+CATALOG_CACHE_TTL = int(os.getenv('CATALOG_CACHE_TTL', str(CACHE_DEFAULT_TTL)))
+WEATHER_CACHE_TTL = int(os.getenv('WEATHER_CACHE_TTL', '600'))
+GEO_CACHE_TTL = int(os.getenv('GEO_CACHE_TTL', '3600'))
+RAFFLE_CACHE_TTL = int(os.getenv('RAFFLE_CACHE_TTL', '60'))
+
+REDIS_URL = os.getenv('REDIS_URL', '').strip()
+
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+            'TIMEOUT': CACHE_DEFAULT_TTL,
+            'KEY_PREFIX': 'grocerysaver',
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'grocerysaver-local-cache',
+            'TIMEOUT': CACHE_DEFAULT_TTL,
+        }
+    }

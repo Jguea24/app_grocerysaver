@@ -1,11 +1,15 @@
 from decimal import Decimal
 
+from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
+from django.db.models import QuerySet
 from django.utils import timezone
 from rest_framework import serializers
 
+from .dataloaders import batch_load_product_qr_codes, get_request_loader
 from .models import (
     Address,
+    BackgroundJob,
     Category,
     NotificationPreference,
     Offer,
@@ -25,6 +29,33 @@ from .services import build_unique_username_from_email, validate_password_or_rai
 
 
 User = get_user_model()
+
+
+def collect_product_ids_for_batch(instance):
+    if instance is None:
+        return []
+
+    if isinstance(instance, Product):
+        return [instance.id]
+
+    if isinstance(instance, QuerySet):
+        instance = list(instance)
+
+    product_ids = []
+    seen = set()
+    for item in instance:
+        if isinstance(item, Product):
+            product_id = item.id
+        else:
+            product_id = getattr(item, 'product_id', None)
+
+        if product_id is None or product_id in seen:
+            continue
+
+        seen.add(product_id)
+        product_ids.append(product_id)
+
+    return product_ids
 
 
 class RegisterSerializer(serializers.Serializer):
@@ -199,10 +230,11 @@ class CategorySerializer(serializers.ModelSerializer):
 class ProductSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
     image = serializers.SerializerMethodField()
+    qr_code = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields = ['id', 'name', 'brand', 'description', 'image', 'category']
+        fields = ['id', 'name', 'brand', 'description', 'image', 'category', 'qr_code']
 
     def get_image(self, obj):
         if not obj.image:
@@ -211,6 +243,16 @@ class ProductSerializer(serializers.ModelSerializer):
         if request is not None:
             return request.build_absolute_uri(obj.image.url)
         return obj.image.url
+
+    def get_qr_code(self, obj):
+        qr_codes_by_product_id = self.context.get('qr_codes_by_product_id')
+        if qr_codes_by_product_id is not None:
+            return qr_codes_by_product_id.get(obj.id)
+
+        request = self.context.get('request')
+        loader = get_request_loader(request, 'product_qr_codes', batch_load_product_qr_codes)
+        batch_product_ids = collect_product_ids_for_batch(getattr(self.root, 'instance', None)) or [obj.id]
+        return loader.load(obj.id, batch_product_ids)
 
 
 class ProductPriceSerializer(serializers.ModelSerializer):
@@ -225,6 +267,59 @@ class ProductCodeSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductCode
         fields = ['code', 'code_type']
+
+
+class ProductExportJobCreateSerializer(serializers.Serializer):
+    category_id = serializers.IntegerField(required=False)
+    search = serializers.CharField(required=False, allow_blank=True, max_length=120)
+
+    def validate_category_id(self, value):
+        if not Category.objects.filter(id=value).exists():
+            raise serializers.ValidationError('Categoria no encontrada.')
+        return value
+
+
+class BackgroundJobSerializer(serializers.ModelSerializer):
+    result_url = serializers.SerializerMethodField()
+    created_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BackgroundJob
+        fields = [
+            'job_id',
+            'job_type',
+            'status',
+            'payload',
+            'result',
+            'result_url',
+            'error',
+            'attempts',
+            'created_by',
+            'created_at',
+            'started_at',
+            'finished_at',
+        ]
+        read_only_fields = fields
+
+    def get_result_url(self, obj):
+        file_path = (obj.result or {}).get('file_path')
+        if not file_path:
+            return None
+
+        relative_media_path = file_path.replace('\\', '/').lstrip('/')
+        url = f"{settings.MEDIA_URL.rstrip('/')}/{relative_media_path}"
+        request = self.context.get('request')
+        if request is not None:
+            return request.build_absolute_uri(url)
+        return url
+
+    def get_created_by(self, obj):
+        if obj.created_by is None:
+            return None
+        return {
+            'id': obj.created_by_id,
+            'email': obj.created_by.email,
+        }
 
 
 class ProductScanSerializer(serializers.Serializer):

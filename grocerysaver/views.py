@@ -7,10 +7,32 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .cache_utils import (
+    CACHE_NS_CATEGORIES,
+    CACHE_NS_COMPARE_PRICES,
+    CACHE_NS_ECUADOR_CANTONS,
+    CACHE_NS_ECUADOR_GEO,
+    CACHE_NS_ECUADOR_PROVINCES,
+    CACHE_NS_OFFERS,
+    CACHE_NS_PRODUCTS,
+    CACHE_NS_RAFFLES,
+    CACHE_NS_ROLES,
+    CACHE_NS_STORES,
+    CACHE_NS_WEATHER,
+    CATALOG_CACHE_TTL,
+    GEO_CACHE_TTL,
+    RAFFLE_CACHE_TTL,
+    WEATHER_CACHE_TTL,
+    get_cached_payload,
+)
+from .dataloaders import batch_load_product_qr_codes, get_request_loader
+from .job_queue import enqueue_export_products_job
 from .models import (
     Address,
+    BackgroundJob,
     Category,
     EmailVerificationToken,
+    JobStatus,
     NotificationPreference,
     Offer,
     Product,
@@ -25,11 +47,13 @@ from .models import (
 )
 from .serializers import (
     AddressSerializer,
+    BackgroundJobSerializer,
     CategorySerializer,
     LoginSerializer,
     LogoutSerializer,
     NotificationPreferenceSerializer,
     OfferSerializer,
+    ProductExportJobCreateSerializer,
     ProductCodeSerializer,
     ProductPriceSerializer,
     ProductScanSerializer,
@@ -54,6 +78,16 @@ from .services import (
 
 
 User = get_user_model()
+
+
+def cache_aware_response(payload, cache_hit):
+    response = Response(payload)
+    response['X-Cache-Status'] = 'HIT' if cache_hit else 'MISS'
+    return response
+
+
+def get_request_base_url(request):
+    return request.build_absolute_uri('/')
 
 
 def build_user_response(user):
@@ -219,6 +253,19 @@ class ApiRootView(APIView):
                         'query_params': ['city', 'lat', 'lon'],
                     },
                     {
+                        'path': '/api/jobs/export-products/',
+                        'method': 'POST',
+                        'auth_required': True,
+                        'body': ['category_id?', 'search?'],
+                        'description': 'Encola un job para exportar productos a CSV.',
+                    },
+                    {
+                        'path': '/api/jobs/<job_id>/',
+                        'method': 'GET',
+                        'auth_required': True,
+                        'description': 'Consulta estado y resultado de un job.',
+                    },
+                    {
                         'path': '/api/geo/ecuador/',
                         'method': 'GET',
                         'auth_required': False,
@@ -289,16 +336,24 @@ class RoleListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        roles = Role.objects.order_by('name').values('name', 'description')
-        return Response({'roles': list(roles)})
+        payload, cache_hit = get_cached_payload(
+            CACHE_NS_ROLES,
+            lambda: {'roles': list(Role.objects.order_by('name').values('name', 'description'))},
+            ttl=CATALOG_CACHE_TTL,
+        )
+        return cache_aware_response(payload, cache_hit)
 
 
 class StoreListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        stores = Store.objects.all()
-        return Response({'stores': StoreSerializer(stores, many=True).data})
+        payload, cache_hit = get_cached_payload(
+            CACHE_NS_STORES,
+            lambda: {'stores': StoreSerializer(Store.objects.all(), many=True).data},
+            ttl=CATALOG_CACHE_TTL,
+        )
+        return cache_aware_response(payload, cache_hit)
 
 
 class AddressListCreateView(APIView):
@@ -383,17 +438,36 @@ class CategoryListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        categories = Category.objects.all()
-        return Response({'categories': CategorySerializer(categories, many=True, context={'request': request}).data})
+        payload, cache_hit = get_cached_payload(
+            CACHE_NS_CATEGORIES,
+            lambda: {
+                'categories': CategorySerializer(
+                    Category.objects.all(),
+                    many=True,
+                    context={'request': request},
+                ).data
+            },
+            params={'base_url': get_request_base_url(request)},
+            ttl=CATALOG_CACHE_TTL,
+        )
+        return cache_aware_response(payload, cache_hit)
 
 
 class ActiveRaffleListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        now = timezone.now()
-        raffles = Raffle.objects.filter(starts_at__lte=now, ends_at__gte=now)
-        return Response({'raffles': RaffleSerializer(raffles, many=True).data})
+        def build_payload():
+            now = timezone.now()
+            raffles = Raffle.objects.filter(starts_at__lte=now, ends_at__gte=now)
+            return {'raffles': RaffleSerializer(raffles, many=True).data}
+
+        payload, cache_hit = get_cached_payload(
+            CACHE_NS_RAFFLES,
+            build_payload,
+            ttl=RAFFLE_CACHE_TTL,
+        )
+        return cache_aware_response(payload, cache_hit)
 
 
 class WeatherView(APIView):
@@ -422,7 +496,16 @@ class WeatherView(APIView):
                 )
 
         try:
-            payload = get_weather_payload(city=city, latitude=latitude, longitude=longitude)
+            payload, cache_hit = get_cached_payload(
+                CACHE_NS_WEATHER,
+                lambda: get_weather_payload(city=city, latitude=latitude, longitude=longitude),
+                params={
+                    'city': (city or '').strip().lower(),
+                    'latitude': latitude,
+                    'longitude': longitude,
+                },
+                ttl=WEATHER_CACHE_TTL,
+            )
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception:
@@ -431,28 +514,38 @@ class WeatherView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        return Response(payload)
+        return cache_aware_response(payload, cache_hit)
 
 
 class EcuadorGeoView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        data = get_ecuador_geo_data()
-        return Response(
-            {
+        def build_payload():
+            data = get_ecuador_geo_data()
+            return {
                 'country': data.get('country', 'Ecuador'),
                 'provinces': data.get('provinces') or [],
             }
+
+        payload, cache_hit = get_cached_payload(
+            CACHE_NS_ECUADOR_GEO,
+            build_payload,
+            ttl=GEO_CACHE_TTL,
         )
+        return cache_aware_response(payload, cache_hit)
 
 
 class EcuadorProvinceListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        provinces = get_ecuador_provinces()
-        return Response({'country': 'Ecuador', 'provinces': provinces})
+        payload, cache_hit = get_cached_payload(
+            CACHE_NS_ECUADOR_PROVINCES,
+            lambda: {'country': 'Ecuador', 'provinces': get_ecuador_provinces()},
+            ttl=GEO_CACHE_TTL,
+        )
+        return cache_aware_response(payload, cache_hit)
 
 
 class EcuadorCantonListView(APIView):
@@ -462,45 +555,82 @@ class EcuadorCantonListView(APIView):
         province_id = request.query_params.get('province_id')
         province_name = request.query_params.get('province')
         try:
-            payload = get_ecuador_cantons(province_id=province_id, province_name=province_name)
+            payload, cache_hit = get_cached_payload(
+                CACHE_NS_ECUADOR_CANTONS,
+                lambda: get_ecuador_cantons(province_id=province_id, province_name=province_name),
+                params={
+                    'province_id': province_id or '',
+                    'province_name': (province_name or '').strip().lower(),
+                },
+                ttl=GEO_CACHE_TTL,
+            )
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(payload)
+        return cache_aware_response(payload, cache_hit)
 
 
 class ProductListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        queryset = Product.objects.select_related('category').prefetch_related('prices__store')
         category_id = request.query_params.get('category_id')
         search = request.query_params.get('search')
 
-        if category_id:
-            queryset = queryset.filter(category_id=category_id)
+        def build_payload():
+            queryset = Product.objects.select_related('category').prefetch_related('prices__store', 'codes')
 
-        if search:
-            queryset = queryset.filter(name__icontains=search)
+            if category_id:
+                queryset_filtered = queryset.filter(category_id=category_id)
+            else:
+                queryset_filtered = queryset
 
-        products_payload = []
-        for product in queryset:
-            prices = list(product.prices.all())
-            best_option = prices[0] if prices else None
-            product_data = ProductSerializer(product, context={'request': request}).data
-            product_data['prices'] = ProductPriceSerializer(prices, many=True).data
-            product_data['stores_available'] = len(prices)
-            product_data['best_option'] = (
-                {
-                    'store': best_option.store.name,
-                    'price': str(best_option.price),
-                }
-                if best_option
-                else None
-            )
-            product_data['best_price'] = str(best_option.price) if best_option else None
-            products_payload.append(product_data)
+            if search:
+                queryset_filtered = queryset_filtered.filter(name__icontains=search)
 
-        return Response({'products': products_payload})
+            products = list(queryset_filtered)
+            qr_codes_by_product_id = get_request_loader(
+                request,
+                'product_qr_codes',
+                batch_load_product_qr_codes,
+            ).load_many([product.id for product in products])
+
+            products_payload = []
+            for product in products:
+                prices = list(product.prices.all())
+                best_option = prices[0] if prices else None
+                product_data = ProductSerializer(
+                    product,
+                    context={
+                        'request': request,
+                        'qr_codes_by_product_id': qr_codes_by_product_id,
+                    },
+                ).data
+                product_data['prices'] = ProductPriceSerializer(prices, many=True).data
+                product_data['stores_available'] = len(prices)
+                product_data['best_option'] = (
+                    {
+                        'store': best_option.store.name,
+                        'price': str(best_option.price),
+                    }
+                    if best_option
+                    else None
+                )
+                product_data['best_price'] = str(best_option.price) if best_option else None
+                products_payload.append(product_data)
+
+            return {'products': products_payload}
+
+        payload, cache_hit = get_cached_payload(
+            CACHE_NS_PRODUCTS,
+            build_payload,
+            params={
+                'base_url': get_request_base_url(request),
+                'category_id': category_id or '',
+                'search': (search or '').strip().lower(),
+            },
+            ttl=CATALOG_CACHE_TTL,
+        )
+        return cache_aware_response(payload, cache_hit)
 
 
 class ProductScanView(APIView):
@@ -594,14 +724,11 @@ class OfferListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        queryset = Offer.objects.select_related('product__category', 'store')
-
         active_param = (request.query_params.get('active') or 'true').strip().lower()
         if active_param in {'true', '1', 'yes', 'on'}:
-            now = timezone.now()
-            queryset = queryset.filter(starts_at__lte=now, ends_at__gte=now)
+            active_filter = True
         elif active_param in {'false', '0', 'no', 'off'}:
-            pass
+            active_filter = False
         else:
             return Response(
                 {'detail': 'Parametro active invalido. Usa true o false.'},
@@ -613,23 +740,59 @@ class OfferListView(APIView):
         category_id = request.query_params.get('category_id')
         search = request.query_params.get('search')
 
-        if store_id:
-            queryset = queryset.filter(store_id=store_id)
-        if product_id:
-            queryset = queryset.filter(product_id=product_id)
-        if category_id:
-            queryset = queryset.filter(product__category_id=category_id)
-        if search:
-            queryset = queryset.filter(product__name__icontains=search)
+        def build_payload():
+            queryset = Offer.objects.select_related('product__category', 'store').prefetch_related('product__codes')
 
-        serialized = OfferSerializer(queryset, many=True, context={'request': request}).data
-        return Response(
-            {
+            if active_filter:
+                now = timezone.now()
+                queryset_filtered = queryset.filter(starts_at__lte=now, ends_at__gte=now)
+            else:
+                queryset_filtered = queryset
+
+            if store_id:
+                queryset_filtered = queryset_filtered.filter(store_id=store_id)
+            if product_id:
+                queryset_filtered = queryset_filtered.filter(product_id=product_id)
+            if category_id:
+                queryset_filtered = queryset_filtered.filter(product__category_id=category_id)
+            if search:
+                queryset_filtered = queryset_filtered.filter(product__name__icontains=search)
+
+            offers = list(queryset_filtered)
+            qr_codes_by_product_id = get_request_loader(
+                request,
+                'product_qr_codes',
+                batch_load_product_qr_codes,
+            ).load_many([offer.product_id for offer in offers])
+
+            serialized = OfferSerializer(
+                offers,
+                many=True,
+                context={
+                    'request': request,
+                    'qr_codes_by_product_id': qr_codes_by_product_id,
+                },
+            ).data
+            return {
                 'count': len(serialized),
                 'offers': serialized,
                 'results': serialized,
             }
+
+        payload, cache_hit = get_cached_payload(
+            CACHE_NS_OFFERS,
+            build_payload,
+            params={
+                'active': active_param,
+                'base_url': get_request_base_url(request),
+                'category_id': category_id or '',
+                'product_id': product_id or '',
+                'search': (search or '').strip().lower(),
+                'store_id': store_id or '',
+            },
+            ttl=CATALOG_CACHE_TTL,
         )
+        return cache_aware_response(payload, cache_hit)
 
 
 class RoleChangeRequestListCreateView(APIView):
@@ -662,36 +825,45 @@ class ProductPriceComparisonView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        queryset = Product.objects.select_related('category').prefetch_related('prices__store')
-        if product_id:
-            product = queryset.filter(id=product_id).first()
-        else:
-            product = queryset.filter(name__iexact=product_name).first()
+        def build_payload():
+            queryset = Product.objects.select_related('category').prefetch_related('prices__store', 'codes')
+            if product_id:
+                product = queryset.filter(id=product_id).first()
+            else:
+                product = queryset.filter(name__iexact=product_name).first()
+                if product is None:
+                    product = queryset.filter(name__icontains=product_name).first()
+
             if product is None:
-                product = queryset.filter(name__icontains=product_name).first()
+                raise LookupError('Producto no encontrado.')
 
-        if product is None:
-            return Response({'detail': 'Producto no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
-
-        prices = product.prices.select_related('store').order_by('price')
-        if not prices.exists():
-            return Response(
-                {
+            prices = product.prices.select_related('store').order_by('price')
+            if not prices.exists():
+                return {
                     'product': ProductSerializer(product, context={'request': request}).data,
                     'prices': [],
                     'stores_available': 0,
                     'best_option': None,
                     'most_expensive_option': None,
                 }
-            )
 
-        best_option = prices.first()
-        most_expensive_option = prices.last()
-        savings = most_expensive_option.price - best_option.price
+            best_option = prices.first()
+            most_expensive_option = prices.last()
+            savings = most_expensive_option.price - best_option.price
+            qr_codes_by_product_id = get_request_loader(
+                request,
+                'product_qr_codes',
+                batch_load_product_qr_codes,
+            ).load_many([product.id])
 
-        return Response(
-            {
-                'product': ProductSerializer(product, context={'request': request}).data,
+            return {
+                'product': ProductSerializer(
+                    product,
+                    context={
+                        'request': request,
+                        'qr_codes_by_product_id': qr_codes_by_product_id,
+                    },
+                ).data,
                 'prices': ProductPriceSerializer(prices, many=True).data,
                 'stores_available': prices.count(),
                 'best_option': {
@@ -703,6 +875,68 @@ class ProductPriceComparisonView(APIView):
                     'price': str(most_expensive_option.price),
                 },
                 'savings_vs_most_expensive': str(savings),
+            }
+
+        try:
+            payload, cache_hit = get_cached_payload(
+                CACHE_NS_COMPARE_PRICES,
+                build_payload,
+                params={
+                    'base_url': get_request_base_url(request),
+                    'product_id': product_id or '',
+                    'product_name': (product_name or '').strip().lower(),
+                },
+                ttl=CATALOG_CACHE_TTL,
+            )
+        except LookupError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_404_NOT_FOUND)
+
+        return cache_aware_response(payload, cache_hit)
+
+
+class ProductExportJobCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = ProductExportJobCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        job = enqueue_export_products_job(
+            created_by=request.user,
+            category_id=serializer.validated_data.get('category_id'),
+            search=serializer.validated_data.get('search', ''),
+        )
+
+        response_serializer = BackgroundJobSerializer(job, context={'request': request})
+        return Response(
+            {
+                'message': 'Job encolado correctamente.',
+                'job': response_serializer.data,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class JobDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, job_id):
+        profile = getattr(request.user, 'profile', None)
+        is_admin = bool(profile and profile.role and profile.role.name == 'admin')
+
+        queryset = BackgroundJob.objects.all()
+        if not is_admin:
+            queryset = queryset.filter(created_by=request.user)
+
+        job = queryset.filter(job_id=job_id).first()
+        if job is None:
+            return Response({'detail': 'Job no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = BackgroundJobSerializer(job, context={'request': request})
+        return Response(
+            {
+                'job': serializer.data,
+                'is_finished': job.status in {JobStatus.COMPLETED, JobStatus.FAILED},
             }
         )
 

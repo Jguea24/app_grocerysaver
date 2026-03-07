@@ -24,6 +24,17 @@ class ProductCodeType(models.TextChoices):
     QR = 'qr', 'QR'
 
 
+class JobStatus(models.TextChoices):
+    QUEUED = 'queued', 'Queued'
+    PROCESSING = 'processing', 'Processing'
+    COMPLETED = 'completed', 'Completed'
+    FAILED = 'failed', 'Failed'
+
+
+class JobType(models.TextChoices):
+    EXPORT_PRODUCTS_CSV = 'export_products_csv', 'Export products CSV'
+
+
 class Role(models.Model):
     name = models.CharField(max_length=50, unique=True)
     description = models.CharField(max_length=255, blank=True)
@@ -331,3 +342,33 @@ class RoleChangeRequest(models.Model):
 
     def __str__(self):
         return f'RoleChangeRequest(user={self.user_id}, status={self.status})'
+
+
+class BackgroundJob(models.Model):
+    job_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    job_type = models.CharField(max_length=50, choices=JobType.choices)
+    status = models.CharField(max_length=20, choices=JobStatus.choices, default=JobStatus.QUEUED)
+    payload = models.JSONField(default=dict, blank=True)
+    result = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True)
+    attempts = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name='background_jobs',
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['job_type', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f'BackgroundJob(job_id={self.job_id}, status={self.status})'
