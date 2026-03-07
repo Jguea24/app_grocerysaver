@@ -1,3 +1,5 @@
+"""Servicios de dominio y helpers compartidos por vistas y señales."""
+
 import re
 import uuid
 from functools import lru_cache
@@ -59,10 +61,12 @@ ECUADOR_GEO_PATH = BASE_DIR / 'data' / 'ecuador_geo.json'
 
 
 def build_qr_code_value():
+    """Genera el valor base de un codigo QR interno."""
     return f'QR-{uuid.uuid4()}'
 
 
 def build_unique_qr_code(reserved_codes=None):
+    """Genera un QR unico evitando colisiones conocidas y persistidas."""
     reserved = reserved_codes or set()
     for _ in range(50):
         candidate = build_qr_code_value()
@@ -74,6 +78,7 @@ def build_unique_qr_code(reserved_codes=None):
 
 
 def ensure_product_qr_code(product):
+    """Garantiza que un producto tenga al menos un codigo QR asociado."""
     if product is None:
         return None
     existing = product.codes.filter(code_type=ProductCodeType.QR).first()
@@ -87,7 +92,7 @@ def ensure_product_qr_code(product):
 
 
 def build_unique_username_from_email(email):
-    # Construye username desde el email y garantiza unicidad (maximo 20 chars).
+    """Crea un username estable a partir del email y asegura unicidad."""
     base = email.split('@')[0].lower()
     base = re.sub(r'[^a-z0-9_.-]', '', base)[:20] or 'user'
 
@@ -102,7 +107,7 @@ def build_unique_username_from_email(email):
 
 
 def validate_password_or_raise(password, user=None):
-    # Delega en validadores de Django y preserva mensajes de error legibles.
+    """Valida password con los validadores de Django y reexpone errores legibles."""
     from django.contrib.auth.password_validation import validate_password
 
     try:
@@ -112,7 +117,7 @@ def validate_password_or_raise(password, user=None):
 
 
 def issue_jwt_pair(user):
-    # Genera tokens access/refresh usando SimpleJWT.
+    """Genera el par de tokens JWT para el usuario autenticado."""
     refresh = RefreshToken.for_user(user)
     return {
         'refresh': str(refresh),
@@ -121,7 +126,7 @@ def issue_jwt_pair(user):
 
 
 def send_email_verification(user, token):
-    # Envia token de verificacion por correo; en DEBUG puede ir a consola.
+    """Envia el token de verificacion al correo configurado del usuario."""
     message = (
         'Tu cuenta fue creada. Para verificarla usa este token en el endpoint '
         'POST /api/auth/verify-email/:\n\n'
@@ -139,7 +144,7 @@ def send_email_verification(user, token):
 
 
 def _http_get_json(base_url, params, timeout=8):
-    # Helper HTTP comun para APIs externas con manejo de errores unificado.
+    """Ejecuta un GET JSON simple y normaliza errores de red o parseo."""
     request_url = f'{base_url}?{urlencode(params)}'
     try:
         with urlopen(request_url, timeout=timeout) as response:
@@ -154,7 +159,7 @@ def _http_get_json(base_url, params, timeout=8):
 
 
 def _weather_text(code):
-    # Convierte weather code numerico a texto; fallback si falta o es invalido.
+    """Convierte el weather code numerico en una etiqueta legible."""
     try:
         return WEATHER_CODE_LABELS.get(int(code), 'Condicion desconocida')
     except (TypeError, ValueError):
@@ -162,7 +167,7 @@ def _weather_text(code):
 
 
 def geocode_city(city_name):
-    # Resuelve nombre de ciudad a coordenadas con Open-Meteo geocoding.
+    """Resuelve una ciudad a coordenadas usando el geocoding de Open-Meteo."""
     payload = _http_get_json(
         OPEN_METEO_GEOCODING_URL,
         {
@@ -187,7 +192,7 @@ def geocode_city(city_name):
 
 
 def fetch_open_meteo_forecast(latitude, longitude, timezone='auto'):
-    # Solicita clima actual, por horas y diario en una sola llamada.
+    """Solicita clima actual, horario y diario en una sola llamada."""
     return _http_get_json(
         OPEN_METEO_FORECAST_URL,
         {
@@ -203,7 +208,7 @@ def fetch_open_meteo_forecast(latitude, longitude, timezone='auto'):
 
 
 def _build_hourly_forecast(hourly, max_items=24):
-    # Normaliza arrays por hora al tamano comun minimo para evitar index errors.
+    """Normaliza la seccion hourly a una lista segura para la API."""
     times = hourly.get('time') or []
     temperatures = hourly.get('temperature_2m') or []
     precipitation_probabilities = hourly.get('precipitation_probability') or []
@@ -228,7 +233,7 @@ def _build_hourly_forecast(hourly, max_items=24):
 
 
 def _build_daily_forecast(daily):
-    # Construye lista diaria compacta con temperatura min/max y descripcion.
+    """Construye una lista diaria compacta con min/max y descripcion."""
     dates = daily.get('time') or []
     max_temperatures = daily.get('temperature_2m_max') or []
     min_temperatures = daily.get('temperature_2m_min') or []
@@ -251,9 +256,7 @@ def _build_daily_forecast(daily):
 
 
 def get_weather_payload(city=None, latitude=None, longitude=None):
-    # Punto de entrada principal del clima:
-    # - si llega city, primero geocodifica
-    # - si no, exige coordenadas
+    """Construye el payload publico del endpoint de clima."""
     selected_city = (city or '').strip()
     if selected_city:
         location_data = geocode_city(selected_city)
@@ -303,7 +306,7 @@ def get_weather_payload(city=None, latitude=None, longitude=None):
 
 @lru_cache(maxsize=1)
 def get_ecuador_geo_data():
-    # Cachea el catalogo geografico en memoria para evitar lecturas de disco.
+    """Carga el catalogo geografico de Ecuador y lo cachea en memoria."""
     if not ECUADOR_GEO_PATH.exists():
         raise ValueError('No existe el catalogo geografico de Ecuador.')
     try:
@@ -313,7 +316,7 @@ def get_ecuador_geo_data():
 
 
 def get_ecuador_provinces():
-    # Retorna resumen de provincias para carga rapida en clientes.
+    """Devuelve un resumen ligero de provincias para clientes moviles."""
     data = get_ecuador_geo_data()
     provinces = data.get('provinces') or []
     return [
@@ -327,7 +330,7 @@ def get_ecuador_provinces():
 
 
 def get_ecuador_cantons(province_id=None, province_name=None):
-    # Resuelve una provincia (por id o nombre exacto) y retorna sus cantones.
+    """Devuelve los cantones de una provincia buscada por id o nombre."""
     data = get_ecuador_geo_data()
     provinces = data.get('provinces') or []
 

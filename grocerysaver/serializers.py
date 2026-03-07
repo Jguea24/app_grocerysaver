@@ -1,3 +1,5 @@
+"""Serializers de DRF para auth, catalogo, perfil y jobs."""
+
 from decimal import Decimal
 
 from django.conf import settings
@@ -32,6 +34,7 @@ User = get_user_model()
 
 
 def collect_product_ids_for_batch(instance):
+    """Extrae ids de producto desde una instancia o coleccion heterogenea."""
     if instance is None:
         return []
 
@@ -59,6 +62,8 @@ def collect_product_ids_for_batch(instance):
 
 
 class RegisterSerializer(serializers.Serializer):
+    """Valida y crea usuarios nuevos junto con su perfil inicial."""
+
     username = serializers.CharField(required=False, max_length=150)
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
@@ -131,10 +136,14 @@ class RegisterSerializer(serializers.Serializer):
 
 
 class VerifyEmailSerializer(serializers.Serializer):
+    """Recibe el token UUID usado para verificar un correo."""
+
     token = serializers.UUIDField()
 
 
 class LoginSerializer(serializers.Serializer):
+    """Autentica por email y password y expone el usuario validado."""
+
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
 
@@ -158,6 +167,8 @@ class LoginSerializer(serializers.Serializer):
 
 
 class SocialLoginSerializer(serializers.Serializer):
+    """Valida el payload minimo para login social delegado."""
+
     provider = serializers.ChoiceField(choices=SocialProvider.values)
     provider_user_id = serializers.CharField(max_length=255)
     email = serializers.EmailField()
@@ -166,16 +177,22 @@ class SocialLoginSerializer(serializers.Serializer):
 
 
 class LogoutSerializer(serializers.Serializer):
+    """Recibe el refresh token que debe invalidarse."""
+
     refresh = serializers.CharField()
 
 
 class StoreSerializer(serializers.ModelSerializer):
+    """Representacion simple de una tienda."""
+
     class Meta:
         model = Store
         fields = ['id', 'name']
 
 
 class AddressSerializer(serializers.ModelSerializer):
+    """CRUD de direcciones asociadas al usuario autenticado."""
+
     class Meta:
         model = Address
         fields = [
@@ -194,6 +211,8 @@ class AddressSerializer(serializers.ModelSerializer):
 
 
 class NotificationPreferenceSerializer(serializers.ModelSerializer):
+    """Representacion editable de preferencias de notificacion."""
+
     class Meta:
         model = NotificationPreference
         fields = ['push_enabled', 'email_enabled', 'sms_enabled', 'updated_at']
@@ -201,6 +220,8 @@ class NotificationPreferenceSerializer(serializers.ModelSerializer):
 
 
 class RaffleSerializer(serializers.ModelSerializer):
+    """Expone rifas junto con su estado calculado."""
+
     is_active = serializers.SerializerMethodField()
 
     class Meta:
@@ -212,6 +233,8 @@ class RaffleSerializer(serializers.ModelSerializer):
 
 
 class CategorySerializer(serializers.ModelSerializer):
+    """Serializa categorias con URL absoluta de imagen cuando existe."""
+
     image = serializers.SerializerMethodField()
 
     class Meta:
@@ -228,6 +251,8 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
+    """Serializa productos y resuelve su QR usando batching por request."""
+
     category = CategorySerializer(read_only=True)
     image = serializers.SerializerMethodField()
     qr_code = serializers.SerializerMethodField()
@@ -256,6 +281,8 @@ class ProductSerializer(serializers.ModelSerializer):
 
 
 class ProductPriceSerializer(serializers.ModelSerializer):
+    """Serializa un precio de producto asociado a una tienda."""
+
     store = StoreSerializer(read_only=True)
 
     class Meta:
@@ -264,12 +291,16 @@ class ProductPriceSerializer(serializers.ModelSerializer):
 
 
 class ProductCodeSerializer(serializers.ModelSerializer):
+    """Serializa codigos asociados a un producto."""
+
     class Meta:
         model = ProductCode
         fields = ['code', 'code_type']
 
 
 class ProductExportJobCreateSerializer(serializers.Serializer):
+    """Valida filtros opcionales para exportar productos a CSV."""
+
     category_id = serializers.IntegerField(required=False)
     search = serializers.CharField(required=False, allow_blank=True, max_length=120)
 
@@ -280,6 +311,8 @@ class ProductExportJobCreateSerializer(serializers.Serializer):
 
 
 class BackgroundJobSerializer(serializers.ModelSerializer):
+    """Expone el estado persistido de un trabajo en background."""
+
     result_url = serializers.SerializerMethodField()
     created_by = serializers.SerializerMethodField()
 
@@ -323,6 +356,8 @@ class BackgroundJobSerializer(serializers.ModelSerializer):
 
 
 class ProductScanSerializer(serializers.Serializer):
+    """Valida el payload usado para escanear o crear productos por codigo."""
+
     code = serializers.CharField(max_length=120)
     code_type = serializers.ChoiceField(choices=ProductCodeType.values, required=False)
     category_id = serializers.IntegerField(required=False)
@@ -352,6 +387,8 @@ class ProductScanSerializer(serializers.Serializer):
 
 
 class OfferSerializer(serializers.ModelSerializer):
+    """Serializa ofertas con ahorro y descuento calculados."""
+
     product = ProductSerializer(read_only=True)
     store = StoreSerializer(read_only=True)
     is_active = serializers.SerializerMethodField()
@@ -388,6 +425,8 @@ class OfferSerializer(serializers.ModelSerializer):
 
 
 class RoleChangeRequestSerializer(serializers.ModelSerializer):
+    """Representacion de lectura para solicitudes de cambio de rol."""
+
     current_role = serializers.SerializerMethodField()
     requested_role = serializers.SerializerMethodField()
 
@@ -415,6 +454,8 @@ class RoleChangeRequestSerializer(serializers.ModelSerializer):
 
 
 class RoleChangeRequestCreateSerializer(serializers.Serializer):
+    """Valida y crea una nueva solicitud de cambio de rol."""
+
     requested_role = serializers.CharField(max_length=50)
     reason = serializers.CharField(required=False, allow_blank=True, max_length=255)
 

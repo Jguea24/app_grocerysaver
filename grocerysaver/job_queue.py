@@ -1,3 +1,5 @@
+"""Cola de trabajos simple basada en base de datos para tareas pesadas."""
+
 import csv
 from pathlib import Path
 
@@ -12,6 +14,7 @@ JOB_EXPORTS_DIR = 'job_exports'
 
 
 def enqueue_export_products_job(*, created_by=None, category_id=None, search=''):
+    """Crea un job pendiente para exportar productos a CSV."""
     payload = {
         'category_id': category_id,
         'search': (search or '').strip(),
@@ -24,6 +27,7 @@ def enqueue_export_products_job(*, created_by=None, category_id=None, search='')
 
 
 def claim_next_job():
+    """Toma el siguiente job en cola y lo marca como processing."""
     with transaction.atomic():
         job = (
             BackgroundJob.objects.select_for_update(skip_locked=True)
@@ -43,6 +47,7 @@ def claim_next_job():
 
 
 def process_next_job():
+    """Procesa el siguiente job pendiente si existe."""
     job = claim_next_job()
     if job is None:
         return None
@@ -52,6 +57,7 @@ def process_next_job():
 
 
 def process_job(job):
+    """Despacha el trabajo segun su tipo y persiste su resultado final."""
     try:
         if job.job_type == JobType.EXPORT_PRODUCTS_CSV:
             result = export_products_to_csv(job)
@@ -72,6 +78,7 @@ def process_job(job):
 
 
 def export_products_to_csv(job):
+    """Genera un archivo CSV con productos filtrados por el payload del job."""
     payload = job.payload or {}
     category_id = payload.get('category_id')
     search = (payload.get('search') or '').strip()

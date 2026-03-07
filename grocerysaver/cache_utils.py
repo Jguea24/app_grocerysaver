@@ -1,3 +1,5 @@
+"""Helpers para cachear respuestas e invalidar namespaces publicos."""
+
 import hashlib
 import logging
 
@@ -37,10 +39,12 @@ CATALOG_NAMESPACES = (
 
 
 def _get_version_key(namespace):
+    """Construye la clave interna usada para versionar un namespace."""
     return VERSION_KEY_TEMPLATE.format(namespace=namespace)
 
 
 def get_cache_version(namespace):
+    """Obtiene o inicializa la version actual de un namespace de cache."""
     version_key = _get_version_key(namespace)
     version = cache.get(version_key)
     if version is None:
@@ -50,6 +54,7 @@ def get_cache_version(namespace):
 
 
 def bump_cache_version(namespace):
+    """Incrementa la version para invalidar todas las claves del namespace."""
     version_key = _get_version_key(namespace)
     if cache.get(version_key) is None:
         cache.set(version_key, 2, timeout=None)
@@ -63,6 +68,7 @@ def bump_cache_version(namespace):
 
 
 def build_cache_key(namespace, **params):
+    """Genera una clave estable a partir del namespace y sus parametros."""
     version = get_cache_version(namespace)
     normalized = '|'.join(f'{key}={params[key]}' for key in sorted(params))
     params_digest = hashlib.md5(normalized.encode('utf-8')).hexdigest()
@@ -70,6 +76,7 @@ def build_cache_key(namespace, **params):
 
 
 def get_cached_payload(namespace, builder, params=None, ttl=None):
+    """Recupera un payload cacheado o lo construye si aun no existe."""
     cache_key = build_cache_key(namespace, **(params or {}))
     payload = cache.get(cache_key)
     if payload is not None:
@@ -83,9 +90,11 @@ def get_cached_payload(namespace, builder, params=None, ttl=None):
 
 
 def invalidate_catalog_caches():
+    """Invalida todos los namespaces asociados al catalogo publico."""
     for namespace in CATALOG_NAMESPACES:
         bump_cache_version(namespace)
 
 
 def invalidate_raffle_cache():
+    """Invalida el namespace de rifas activas."""
     bump_cache_version(CACHE_NS_RAFFLES)

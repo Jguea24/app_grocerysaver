@@ -1,3 +1,5 @@
+"""Rutas publicas y autenticadas expuestas por la app GrocerySaver."""
+
 from django.urls import path
 
 from .views import (

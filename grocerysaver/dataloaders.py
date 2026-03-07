@@ -1,12 +1,17 @@
+"""Loaders por request para agrupar lecturas repetitivas y evitar N+1."""
+
 from .models import ProductCode, ProductCodeType
 
 
 class RequestDataLoader:
+    """Implementa batching simple y cache en memoria para un request."""
+
     def __init__(self, batch_load_fn):
         self.batch_load_fn = batch_load_fn
         self.cache = {}
 
     def load_many(self, keys):
+        """Carga varias claves a la vez y reutiliza resultados ya resueltos."""
         normalized_keys = []
         seen = set()
         for key in keys:
@@ -24,6 +29,7 @@ class RequestDataLoader:
         return {key: self.cache.get(key) for key in normalized_keys}
 
     def load(self, key, batch_keys=None):
+        """Carga una sola clave, con opcion de resolverla junto al lote completo."""
         if key is None:
             return None
 
@@ -32,6 +38,7 @@ class RequestDataLoader:
 
 
 def get_request_loader(request, name, batch_load_fn):
+    """Obtiene o crea un loader asociado al objeto request actual."""
     if request is None:
         return RequestDataLoader(batch_load_fn)
 
@@ -49,6 +56,7 @@ def get_request_loader(request, name, batch_load_fn):
 
 
 def batch_load_product_qr_codes(product_ids):
+    """Resuelve codigos QR por producto con una sola consulta SQL."""
     qr_codes_by_product_id = {product_id: None for product_id in product_ids}
     qr_rows = (
         ProductCode.objects.filter(product_id__in=product_ids, code_type=ProductCodeType.QR)

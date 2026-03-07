@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Django's command-line utility for administrative tasks."""
+"""Punto de entrada para comandos administrativos del proyecto Django."""
 import os
 import sys
 import threading
@@ -7,9 +7,10 @@ import webbrowser
 
 
 def main():
-    """Run administrative tasks."""
+    """Configura Django y delega la ejecucion al command runner oficial."""
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'api_grocerysaver.settings')
     if 'runserver' in sys.argv and os.environ.get('RUN_MAIN') == 'true':
+        # Abre el admin local automaticamente durante desarrollo.
         admin_url = 'http://127.0.0.1:8000/admin/login/?next=/admin/'
         threading.Timer(1.0, lambda: webbrowser.open(admin_url)).start()
     try:

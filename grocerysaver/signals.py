@@ -1,3 +1,5 @@
+"""Señales de dominio para codigos QR e invalidacion de cache."""
+
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -8,6 +10,7 @@ from .services import ensure_product_qr_code
 
 @receiver(post_save, sender=Product)
 def create_product_qr_code(sender, instance, created, **kwargs):
+    """Asigna un QR automatico a cada producto nuevo."""
     if kwargs.get('raw'):
         return
     if created:
@@ -29,6 +32,7 @@ def create_product_qr_code(sender, instance, created, **kwargs):
 @receiver(post_save, sender=Offer)
 @receiver(post_delete, sender=Offer)
 def invalidate_public_catalog(sender, **kwargs):
+    """Invalida cache publico cuando cambia el catalogo visible."""
     if kwargs.get('raw'):
         return
     invalidate_catalog_caches()
@@ -37,6 +41,7 @@ def invalidate_public_catalog(sender, **kwargs):
 @receiver(post_save, sender=Raffle)
 @receiver(post_delete, sender=Raffle)
 def invalidate_active_raffles(sender, **kwargs):
+    """Invalida la cache de rifas cuando cambia una rifa."""
     if kwargs.get('raw'):
         return
     invalidate_raffle_cache()

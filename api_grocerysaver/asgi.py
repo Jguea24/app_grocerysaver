@@ -1,11 +1,4 @@
-"""
-ASGI config for api_grocerysaver project.
-
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/6.0/howto/deployment/asgi/
-"""
+"""Configuracion ASGI para despliegues asincronos del proyecto."""
 
 import os
 

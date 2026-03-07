@@ -1,3 +1,5 @@
+"""Tests de integracion para auth, catalogo, cache, DataLoader y jobs."""
+
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -31,6 +33,8 @@ from .serializers import ProductSerializer
 
 
 class AuthFlowTests(APITestCase):
+    """Casos de autenticacion, verificacion y permisos basicos."""
+
     def setUp(self):
         self.cliente_role, _ = Role.objects.get_or_create(
             name='cliente',
@@ -254,6 +258,8 @@ class AuthFlowTests(APITestCase):
 
 
 class CatalogComparisonTests(APITestCase):
+    """Pruebas del catalogo publico y comparacion de precios."""
+
     def setUp(self):
         cache.clear()
 
@@ -285,6 +291,8 @@ class CatalogComparisonTests(APITestCase):
 
 
 class ProductScanEndpointTests(APITestCase):
+    """Cobertura del endpoint de escaneo y alta rapida de productos."""
+
     def setUp(self):
         cache.clear()
         self.category = Category.objects.create(name='Enlatados')
@@ -342,6 +350,8 @@ class ProductScanEndpointTests(APITestCase):
 
 
 class OfferEndpointTests(APITestCase):
+    """Validaciones del filtro de ofertas activas e historicas."""
+
     def setUp(self):
         cache.clear()
         self.category = Category.objects.create(name='Lacteos Test Offers')
@@ -385,6 +395,8 @@ class OfferEndpointTests(APITestCase):
 
 
 class ProfileMenuEndpointsTests(APITestCase):
+    """Pruebas de endpoints de perfil autenticado."""
+
     def setUp(self):
         cache.clear()
         self.cliente_role, _ = Role.objects.get_or_create(name='cliente')
@@ -507,6 +519,8 @@ class ProfileMenuEndpointsTests(APITestCase):
 
 
 class WeatherEndpointTests(APITestCase):
+    """Cobertura del endpoint de clima y su cache."""
+
     def setUp(self):
         cache.clear()
 
@@ -570,6 +584,8 @@ class WeatherEndpointTests(APITestCase):
 
 
 class EcuadorGeoCatalogTests(APITestCase):
+    """Pruebas del catalogo geografico local de Ecuador."""
+
     def setUp(self):
         cache.clear()
 
@@ -599,6 +615,8 @@ class EcuadorGeoCatalogTests(APITestCase):
 
 
 class CacheInvalidationTests(APITestCase):
+    """Comprueba hit/miss e invalidacion de cache publico."""
+
     def setUp(self):
         cache.clear()
 
@@ -621,6 +639,8 @@ class CacheInvalidationTests(APITestCase):
 
 
 class DataLoaderTests(APITestCase):
+    """Verifica batching y cache por request del DataLoader."""
+
     def setUp(self):
         cache.clear()
         self.factory = APIRequestFactory()
@@ -658,6 +678,8 @@ class DataLoaderTests(APITestCase):
 
 
 class BackgroundJobEndpointTests(APITestCase):
+    """Pruebas de la cola de trabajos y consulta de estado."""
+
     def setUp(self):
         cache.clear()
         self.user = get_user_model().objects.create_user(

@@ -1,3 +1,5 @@
+"""Vistas HTTP de la API GrocerySaver."""
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -81,16 +83,19 @@ User = get_user_model()
 
 
 def cache_aware_response(payload, cache_hit):
+    """Adjunta un header simple para distinguir hit y miss de cache."""
     response = Response(payload)
     response['X-Cache-Status'] = 'HIT' if cache_hit else 'MISS'
     return response
 
 
 def get_request_base_url(request):
+    """Obtiene la URL base absoluta del request actual."""
     return request.build_absolute_uri('/')
 
 
 def build_user_response(user):
+    """Construye un payload consistente de usuario autenticado."""
     profile = getattr(user, 'profile', None)
     role_name = profile.role.name if profile and profile.role else None
     return {
@@ -108,6 +113,8 @@ def build_user_response(user):
 
 
 class IsAdminRole(permissions.BasePermission):
+    """Permiso basado en el rol admin definido en el perfil del usuario."""
+
     message = 'No tienes permisos para acceder a esta ruta.'
 
     def has_permission(self, request, view):
@@ -116,6 +123,8 @@ class IsAdminRole(permissions.BasePermission):
 
 
 class RegisterView(generics.GenericAPIView):
+    """Registro de usuarios nuevos y emision de token de verificacion."""
+
     permission_classes = [permissions.AllowAny]
     serializer_class = RegisterSerializer
 
@@ -163,6 +172,8 @@ class RegisterView(generics.GenericAPIView):
 
 
 class ApiRootView(APIView):
+    """Indice simple de rutas disponibles para exploracion manual."""
+
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -333,6 +344,8 @@ class ApiRootView(APIView):
 
 
 class RoleListView(APIView):
+    """Expone los roles disponibles del sistema."""
+
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -345,6 +358,8 @@ class RoleListView(APIView):
 
 
 class StoreListView(APIView):
+    """Lista tiendas del catalogo publico."""
+
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -357,6 +372,8 @@ class StoreListView(APIView):
 
 
 class AddressListCreateView(APIView):
+    """Lista y crea direcciones del usuario autenticado."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
@@ -378,6 +395,8 @@ class AddressListCreateView(APIView):
 
 
 class AddressDetailView(APIView):
+    """Actualiza o elimina una direccion individual del usuario."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def _get_address(self, request, address_id):
@@ -420,6 +439,8 @@ class AddressDetailView(APIView):
 
 
 class NotificationPreferenceView(APIView):
+    """Lee y actualiza preferencias de notificacion del usuario."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
@@ -435,6 +456,8 @@ class NotificationPreferenceView(APIView):
 
 
 class CategoryListView(APIView):
+    """Lista categorias publicas con soporte de cache."""
+
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -454,6 +477,8 @@ class CategoryListView(APIView):
 
 
 class ActiveRaffleListView(APIView):
+    """Retorna rifas vigentes para usuarios autenticados."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
@@ -471,6 +496,8 @@ class ActiveRaffleListView(APIView):
 
 
 class WeatherView(APIView):
+    """Expone clima por ciudad o coordenadas."""
+
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -518,6 +545,8 @@ class WeatherView(APIView):
 
 
 class EcuadorGeoView(APIView):
+    """Entrega el catalogo geografico completo de Ecuador."""
+
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -537,6 +566,8 @@ class EcuadorGeoView(APIView):
 
 
 class EcuadorProvinceListView(APIView):
+    """Entrega un resumen liviano de provincias del Ecuador."""
+
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -549,6 +580,8 @@ class EcuadorProvinceListView(APIView):
 
 
 class EcuadorCantonListView(APIView):
+    """Entrega los cantones de una provincia especifica."""
+
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -570,6 +603,8 @@ class EcuadorCantonListView(APIView):
 
 
 class ProductListView(APIView):
+    """Lista productos, precios y mejor opcion disponible."""
+
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -634,6 +669,8 @@ class ProductListView(APIView):
 
 
 class ProductScanView(APIView):
+    """Busca un producto por codigo o lo crea si no existe."""
+
     permission_classes = [permissions.AllowAny]
 
     def _build_product_payload(self, product, request):
@@ -721,6 +758,8 @@ class ProductScanView(APIView):
 
 
 class OfferListView(APIView):
+    """Lista ofertas activas o historicas con filtros basicos."""
+
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -796,6 +835,8 @@ class OfferListView(APIView):
 
 
 class RoleChangeRequestListCreateView(APIView):
+    """Lista y crea solicitudes de cambio de rol del usuario actual."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
@@ -813,6 +854,8 @@ class RoleChangeRequestListCreateView(APIView):
 
 
 class ProductPriceComparisonView(APIView):
+    """Compara precios de un producto entre varias tiendas."""
+
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -895,6 +938,8 @@ class ProductPriceComparisonView(APIView):
 
 
 class ProductExportJobCreateView(APIView):
+    """Encola un job asincrono para exportar productos a CSV."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -918,6 +963,8 @@ class ProductExportJobCreateView(APIView):
 
 
 class JobDetailView(APIView):
+    """Consulta estado y resultado de un trabajo en background."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, job_id):
@@ -942,6 +989,8 @@ class JobDetailView(APIView):
 
 
 class VerifyEmailView(APIView):
+    """Activa una cuenta a partir de un token de verificacion."""
+
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -977,6 +1026,8 @@ class VerifyEmailView(APIView):
 
 
 class LoginView(APIView):
+    """Autentica un usuario local por email y password."""
+
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -994,6 +1045,8 @@ class LoginView(APIView):
 
 
 class MeView(APIView):
+    """Devuelve el perfil resumido del usuario autenticado."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
@@ -1001,6 +1054,8 @@ class MeView(APIView):
 
 
 class LogoutView(APIView):
+    """Invalida un refresh token via blacklist."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -1018,6 +1073,8 @@ class LogoutView(APIView):
 
 
 class ProtectedRouteView(APIView):
+    """Ruta minima de prueba para autenticacion JWT."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
@@ -1030,6 +1087,8 @@ class ProtectedRouteView(APIView):
 
 
 class AdminOnlyView(APIView):
+    """Ruta protegida solo para usuarios con rol admin."""
+
     permission_classes = [permissions.IsAuthenticated, IsAdminRole]
 
     def get(self, request):
@@ -1037,6 +1096,8 @@ class AdminOnlyView(APIView):
 
 
 class SocialLoginView(APIView):
+    """Crea o reutiliza usuarios a partir de identidad social externa."""
+
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):

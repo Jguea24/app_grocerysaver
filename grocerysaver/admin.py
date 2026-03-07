@@ -1,3 +1,5 @@
+"""Configuracion del admin de Django para gestionar el dominio GrocerySaver."""
+
 import random
 import string
 import uuid
@@ -39,6 +41,7 @@ except admin.sites.NotRegistered:
 
 
 def build_ean13_code():
+    """Genera un codigo EAN-13 valido para altas manuales desde admin."""
     base = ''.join(random.choices(string.digits, k=12))
     total = 0
     for idx, char in enumerate(base):
@@ -49,10 +52,12 @@ def build_ean13_code():
 
 
 def build_qr_code():
+    """Genera el valor de un codigo QR interno."""
     return f'QR-{uuid.uuid4()}'
 
 
 def build_unique_product_code(code_type, reserved_codes=None):
+    """Produce un codigo unico segun el tipo solicitado."""
     reserved = reserved_codes or set()
     for _ in range(50):
         candidate = build_qr_code() if code_type == 'qr' else build_ean13_code()
@@ -64,12 +69,15 @@ def build_unique_product_code(code_type, reserved_codes=None):
 
 
 def build_qr_image_url(code, size=96):
+    """Construye una URL externa para previsualizar un QR en admin."""
     if not code:
         return ''
     return f'https://api.qrserver.com/v1/create-qr-code/?size={size}x{size}&data={quote(code)}'
 
 
 class ProductCodeAutoForm(ModelForm):
+    """Formulario que autocompleta codigos faltantes al guardar."""
+
     class Meta:
         model = ProductCode
         fields = '__all__'
@@ -93,6 +101,8 @@ class ProductCodeAutoForm(ModelForm):
 
 
 class ProductCodeInlineFormSet(BaseInlineFormSet):
+    """Garantiza codigos unicos entre los formularios inline del mismo producto."""
+
     def clean(self):
         super().clean()
 
@@ -116,6 +126,8 @@ class ProductCodeInlineFormSet(BaseInlineFormSet):
 
 
 class UserProfileInline(admin.StackedInline):
+    """Inline para editar el perfil extendido junto al usuario."""
+
     model = UserProfile
     fk_name = 'user'
     can_delete = False
@@ -130,6 +142,8 @@ class UserProfileInline(admin.StackedInline):
 
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
+    """Admin personalizado del usuario con datos de perfil integrados."""
+
     list_display = (
         'username',
         'email',
@@ -175,18 +189,24 @@ class CustomUserAdmin(UserAdmin):
 
 @admin.register(Role)
 class RoleAdmin(admin.ModelAdmin):
+    """Admin basico para el catalogo de roles."""
+
     list_display = ('name', 'description', 'created_at')
     search_fields = ('name',)
 
 
 @admin.register(Store)
 class StoreAdmin(admin.ModelAdmin):
+    """Admin basico para tiendas."""
+
     list_display = ('name', 'created_at')
     search_fields = ('name',)
 
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
+    """Admin de categorias con preview de imagen."""
+
     list_display = ('name', 'image_preview', 'created_at')
     search_fields = ('name',)
     fields = ('name', 'image', 'image_preview')
@@ -200,6 +220,8 @@ class CategoryAdmin(admin.ModelAdmin):
 
 
 class ProductPriceInline(admin.TabularInline):
+    """Inline para editar precios por tienda dentro del producto."""
+
     model = ProductPrice
     extra = 0
     fields = ('store', 'price', 'updated_at')
@@ -207,6 +229,8 @@ class ProductPriceInline(admin.TabularInline):
 
 
 class ProductCodeInline(admin.TabularInline):
+    """Inline para administrar barcodes y QR del producto."""
+
     model = ProductCode
     form = ProductCodeAutoForm
     formset = ProductCodeInlineFormSet
@@ -220,6 +244,8 @@ class ProductCodeInline(admin.TabularInline):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
+    """Admin de productos con imagen, QR y precios resumidos."""
+
     list_display = (
         'name',
         'brand',
@@ -283,6 +309,8 @@ class ProductAdmin(admin.ModelAdmin):
 
 @admin.register(ProductPrice)
 class ProductPriceAdmin(admin.ModelAdmin):
+    """Admin de precios individuales por producto y tienda."""
+
     list_display = ('product', 'category', 'store', 'price', 'updated_at')
     list_filter = ('store', 'product__category')
     search_fields = ('product__name', 'product__brand', 'store__name')
@@ -295,6 +323,8 @@ class ProductPriceAdmin(admin.ModelAdmin):
 
 @admin.register(ProductCode)
 class ProductCodeAdmin(admin.ModelAdmin):
+    """Admin de codigos con preview para QR."""
+
     form = ProductCodeAutoForm
     list_display = ('code', 'code_type', 'qr_image', 'product', 'category', 'created_at')
     list_filter = ('code_type', 'product__category')
@@ -318,6 +348,8 @@ class ProductCodeAdmin(admin.ModelAdmin):
 
 @admin.register(Offer)
 class OfferAdmin(admin.ModelAdmin):
+    """Admin de ofertas con descuento calculado."""
+
     list_display = (
         'product',
         'store',
@@ -342,6 +374,8 @@ class OfferAdmin(admin.ModelAdmin):
 
 @admin.register(EmailVerificationToken)
 class EmailVerificationTokenAdmin(admin.ModelAdmin):
+    """Admin para seguimiento de tokens de verificacion."""
+
     list_display = ('user', 'token', 'is_used', 'expires_at', 'created_at')
     list_filter = ('is_used',)
     search_fields = ('user__email', 'user__username', 'token')
@@ -349,12 +383,16 @@ class EmailVerificationTokenAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
+    """Admin del perfil extendido del usuario."""
+
     list_display = ('user', 'role', 'birth_date', 'address', 'created_at', 'updated_at')
     search_fields = ('user__email', 'user__username', 'role__name', 'address')
 
 
 @admin.register(Address)
 class AddressAdmin(admin.ModelAdmin):
+    """Admin de direcciones guardadas por usuarios."""
+
     list_display = ('user', 'label', 'contact_name', 'phone', 'city', 'is_default', 'updated_at')
     list_filter = ('is_default', 'city')
     search_fields = ('user__email', 'user__username', 'contact_name', 'phone', 'city', 'line1')
@@ -362,18 +400,24 @@ class AddressAdmin(admin.ModelAdmin):
 
 @admin.register(NotificationPreference)
 class NotificationPreferenceAdmin(admin.ModelAdmin):
+    """Admin de preferencias de notificacion."""
+
     list_display = ('user', 'push_enabled', 'email_enabled', 'sms_enabled', 'updated_at')
     search_fields = ('user__email', 'user__username')
 
 
 @admin.register(Raffle)
 class RaffleAdmin(admin.ModelAdmin):
+    """Admin de rifas y su estado activo."""
+
     list_display = ('title', 'starts_at', 'ends_at', 'is_active')
     search_fields = ('title', 'description')
 
 
 @admin.register(RoleChangeRequest)
 class RoleChangeRequestAdmin(admin.ModelAdmin):
+    """Admin de solicitudes de cambio de rol con sincronizacion de perfil."""
+
     list_display = ('user', 'current_role', 'requested_role', 'status', 'created_at', 'resolved_at')
     list_filter = ('status', 'requested_role')
     search_fields = ('user__email', 'user__username', 'reason', 'admin_notes')

@@ -1,3 +1,5 @@
+"""Configuracion principal de Django para GrocerySaver."""
+
 import os
 from pathlib import Path
 
@@ -52,6 +54,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'api_grocerysaver.wsgi.application'
 
+# Configuracion local por defecto para PostgreSQL.
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -88,6 +91,7 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Autenticacion global via JWT para la API.
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -103,6 +107,7 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 DEFAULT_FROM_EMAIL = 'no-reply@grocerysaver.local'
 EMAIL_VERIFICATION_TOKEN_TTL_HOURS = 24
 
+# TTLs configurables para la capa de cache de Django.
 CACHE_DEFAULT_TTL = int(os.getenv('CACHE_DEFAULT_TTL', '120'))
 CATALOG_CACHE_TTL = int(os.getenv('CATALOG_CACHE_TTL', str(CACHE_DEFAULT_TTL)))
 WEATHER_CACHE_TTL = int(os.getenv('WEATHER_CACHE_TTL', '600'))
@@ -112,6 +117,7 @@ RAFFLE_CACHE_TTL = int(os.getenv('RAFFLE_CACHE_TTL', '60'))
 REDIS_URL = os.getenv('REDIS_URL', '').strip()
 
 if REDIS_URL:
+    # En produccion o entornos compartidos se puede usar Redis.
     CACHES = {
         'default': {
             'BACKEND': 'django.core.cache.backends.redis.RedisCache',
@@ -121,6 +127,7 @@ if REDIS_URL:
         }
     }
 else:
+    # Fallback simple para desarrollo cuando Redis no esta disponible.
     CACHES = {
         'default': {
             'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
