@@ -1,0 +1,157 @@
+{% extends "rest_framework/base.html" %}
+
+{% block title %}API Explorer | GrocerySaver{% endblock %}
+{% block bodyclass %}grocery-api-body--root{% endblock %}
+
+{% block breadcrumbs %}
+  <nav class="grocery-api-breadcrumbs" aria-label="breadcrumbs">
+    <span class="grocery-api-breadcrumb grocery-api-breadcrumb--current">API Explorer</span>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <section class="grocery-api-hero">
+    <div class="grocery-api-hero__copy">
+      <p class="grocery-api-kicker">Backend Platform</p>
+      <h1>Interfaz profesional para explorar GrocerySaver API</h1>
+      <p class="grocery-api-hero__lead">
+        Documentacion operativa, acceso rapido a endpoints y una vista clara para integraciones, QA y soporte interno.
+      </p>
+
+      <div class="grocery-api-hero__actions">
+        <a class="grocery-api-cta" href="{{ docs_url }}">Abrir docs</a>
+        <a class="grocery-api-cta grocery-api-cta--ghost" href="{{ schema_url }}">Schema JSON</a>
+        <a class="grocery-api-cta grocery-api-cta--ghost" href="{{ admin_url }}">Abrir admin</a>
+      </div>
+    </div>
+
+    <aside class="grocery-api-hero__panel">
+      <div class="grocery-api-inline-stat">
+        <span>Base URL</span>
+        <strong>{{ base_url }}</strong>
+      </div>
+      <div class="grocery-api-inline-stat">
+        <span>Auth</span>
+        <strong>{{ auth_scheme }}</strong>
+      </div>
+      <div class="grocery-api-inline-stat">
+        <span>Formato</span>
+        <strong>{{ default_format }}</strong>
+      </div>
+      <div class="grocery-api-token-box">
+        <span>Header sugerido</span>
+        <pre class="prettyprint">{{ sample_token_header }}</pre>
+      </div>
+    </aside>
+  </section>
+
+  <section class="grocery-api-stat-grid">
+    {% for stat in stats %}
+      <article class="grocery-api-stat-card">
+        <p>{{ stat.label }}</p>
+        <strong>{{ stat.value }}</strong>
+        <span>{{ stat.hint }}</span>
+      </article>
+    {% endfor %}
+  </section>
+
+  <section class="grocery-api-root-grid">
+    <article class="grocery-api-callout">
+      <header class="grocery-api-section-header">
+        <div>
+          <p class="grocery-api-kicker">Quickstart</p>
+          <h2>Flujo minimo de integracion</h2>
+        </div>
+      </header>
+
+      <div class="grocery-api-step-list">
+        {% for step in quickstart %}
+          <article class="grocery-api-step">
+            <div class="grocery-api-step__meta">
+              <span class="grocery-api-method-badge grocery-api-method-badge--{{ step.method|lower }}">{{ step.method }}</span>
+              <code>{{ step.path }}</code>
+            </div>
+            <h3>{{ step.title }}</h3>
+            <p>{{ step.summary }}</p>
+          </article>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="grocery-api-callout">
+      <header class="grocery-api-section-header">
+        <div>
+          <p class="grocery-api-kicker">Ejemplo</p>
+          <h2>Inicio de sesion JWT</h2>
+        </div>
+      </header>
+
+      <pre class="prettyprint">POST /api/auth/login/
+{
+  "email": "admin@example.com",
+  "password": "TuPassword123!"
+}</pre>
+    </article>
+  </section>
+
+  {% for section in sections %}
+    <section class="grocery-api-section">
+      <header class="grocery-api-section-header">
+        <div>
+          <p class="grocery-api-kicker">Seccion {{ forloop.counter }}</p>
+          <h2>{{ section.title }}</h2>
+          <p>{{ section.description }}</p>
+        </div>
+        <span class="grocery-api-section-count">{{ section.count }} endpoints</span>
+      </header>
+
+      <div class="grocery-api-endpoint-grid">
+        {% for endpoint in section.endpoints %}
+          <article class="grocery-api-endpoint-card">
+            <div class="grocery-api-endpoint-card__top">
+              <span class="grocery-api-method-badge grocery-api-method-badge--{{ endpoint.method|lower }}">{{ endpoint.method }}</span>
+              {% if endpoint.auth_required %}
+                <span class="grocery-api-access-badge">JWT</span>
+              {% else %}
+                <span class="grocery-api-access-badge grocery-api-access-badge--public">Publico</span>
+              {% endif %}
+              {% if endpoint.role_required %}
+                <span class="grocery-api-access-badge grocery-api-access-badge--admin">{{ endpoint.role_required }}</span>
+              {% endif %}
+            </div>
+
+            <a class="grocery-api-endpoint-card__path" href="{{ endpoint.path }}">{{ endpoint.path }}</a>
+
+            {% if endpoint.description %}
+              <p class="grocery-api-endpoint-card__description">{{ endpoint.description }}</p>
+            {% else %}
+              <p class="grocery-api-endpoint-card__description">Endpoint listo para exploracion manual desde la interfaz navegable.</p>
+            {% endif %}
+
+            {% if endpoint.query_params %}
+              <div class="grocery-api-chip-group">
+                <span>Query</span>
+                <div class="grocery-api-chip-list">
+                  {% for param in endpoint.query_params %}
+                    <code class="grocery-api-chip">{{ param }}</code>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+
+            {% if endpoint.body %}
+              <div class="grocery-api-chip-group">
+                <span>Body</span>
+                <div class="grocery-api-chip-list">
+                  {% for field in endpoint.body %}
+                    <code class="grocery-api-chip">{{ field }}</code>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endfor %}
+{% endblock %}

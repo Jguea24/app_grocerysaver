@@ -53,6 +53,7 @@ class AuthFlowTests(APITestCase):
             defaults={'description': 'Administrador de la aplicacion'},
         )
 
+    @override_settings(AUTO_VERIFY_EMAIL_ON_REGISTER=False)
     def test_register_verify_and_login_with_role(self):
         register_response = self.client.post(
             '/api/auth/register/',
@@ -114,6 +115,7 @@ class AuthFlowTests(APITestCase):
         response = self.client.get('/api/protected/')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    @override_settings(AUTO_VERIFY_EMAIL_ON_REGISTER=False)
     def test_me_protected_and_logout(self):
         register_response = self.client.post(
             '/api/auth/register/',
@@ -173,6 +175,29 @@ class AuthFlowTests(APITestCase):
         )
         self.assertEqual(logout_again_response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_register_auto_verifies_user_when_setting_enabled(self):
+        response = self.client.post(
+            '/api/auth/register/',
+            {
+                'username': 'auto.user',
+                'email': 'auto@example.com',
+                'password': 'TestPass123!@#',
+                'confirm_password': 'TestPass123!@#',
+                'first_name': 'Auto',
+                'role': 'cliente',
+                'address': 'Centro',
+                'birth_date': '1998-04-12',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['email_verification_required'], False)
+
+        user = get_user_model().objects.get(email='auto@example.com')
+        self.assertTrue(user.is_active)
+        self.assertFalse(EmailVerificationToken.objects.filter(user=user).exists())
+
     def test_admin_only_route_uses_role(self):
         user_model = get_user_model()
         customer = user_model.objects.create_user(
@@ -225,14 +250,20 @@ class AuthFlowTests(APITestCase):
         )
         self.assertEqual(admin_response.status_code, status.HTTP_200_OK)
 
-    def test_social_login_creates_user_and_account(self):
+    @patch('grocerysaver.views.verify_google_id_token')
+    def test_social_login_creates_user_and_account(self, mocked_verify_google_id_token):
+        mocked_verify_google_id_token.return_value = {
+            'provider_user_id': 'google-123',
+            'email': 'social@example.com',
+            'first_name': 'Social',
+            'last_name': '',
+        }
+
         response = self.client.post(
             '/api/auth/social-login/',
             {
-                'provider': 'facebook',
-                'provider_user_id': 'facebook-123',
-                'email': 'social@example.com',
-                'first_name': 'Social',
+                'provider': 'google',
+                'id_token': 'google-id-token',
             },
             format='json',
         )
@@ -246,23 +277,22 @@ class AuthFlowTests(APITestCase):
         self.assertTrue(
             SocialAccount.objects.filter(
                 user=user,
-                provider='facebook',
-                provider_user_id='facebook-123',
+                provider='google',
+                provider_user_id='google-123',
             ).exists()
         )
 
-    def test_social_login_requires_provider_user_id(self):
+    def test_social_login_requires_id_token(self):
         response = self.client.post(
             '/api/auth/social-login/',
             {
-                'provider': 'facebook',
-                'email': 'social@example.com',
+                'provider': 'google',
             },
             format='json',
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('provider_user_id', response.data)
+        self.assertIn('id_token', response.data)
 
 
 class CatalogComparisonTests(APITestCase):
@@ -735,37 +765,6 @@ class WeatherEndpointTests(APITestCase):
         mocked_get_weather.assert_called_once_with(city='Tena', latitude=None, longitude=None)
 
 
-class EcuadorGeoCatalogTests(APITestCase):
-    """Pruebas del catalogo geografico local de Ecuador."""
-
-    def setUp(self):
-        cache.clear()
-
-    def test_ecuador_geo_returns_country_and_provinces(self):
-        response = self.client.get('/api/geo/ecuador/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['country'], 'Ecuador')
-        self.assertEqual(len(response.data['provinces']), 24)
-
-    def test_ecuador_provinces_summary(self):
-        response = self.client.get('/api/geo/ecuador/provinces/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['country'], 'Ecuador')
-        self.assertEqual(len(response.data['provinces']), 24)
-        self.assertIn('cantons_count', response.data['provinces'][0])
-
-    def test_ecuador_cantons_by_province_id(self):
-        response = self.client.get('/api/geo/ecuador/cantons/?province_id=1')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['province']['name'], 'Azuay')
-        self.assertGreaterEqual(len(response.data['cantons']), 1)
-
-    def test_ecuador_cantons_requires_province(self):
-        response = self.client.get('/api/geo/ecuador/cantons/')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('province_id o province', response.data['detail'])
-
-
 class CacheInvalidationTests(APITestCase):
     """Comprueba hit/miss e invalidacion de cache publico."""
 
@@ -902,6 +901,16 @@ class BackgroundJobEndpointTests(APITestCase):
         self.assertEqual(detail_response.data['job']['result']['file_format'], 'pdf')
         self.assertTrue(detail_response.data['job']['result_url'].endswith('.pdf'))
 
+    def test_job_processing_falls_back_when_media_export_dir_is_not_writable(self):
+        self.client.post('/api/jobs/export-products/', {}, format='json')
+
+        with patch('grocerysaver.job_queue.is_directory_writable', side_effect=[False, True]):
+            processed_job = process_next_job()
+
+        self.assertIsNotNone(processed_job)
+        self.assertEqual(processed_job.status, 'completed')
+        self.assertEqual(processed_job.result['file_format'], 'csv')
+
 
 class DeviceSensorEndpointTests(APITestCase):
     """Verifica el endpoint de captura de sensores del dispositivo."""
@@ -1025,3 +1034,30 @@ class ProfileAvatarEndpointTests(APITestCase):
         self.user.refresh_from_db()
         self.assertFalse(bool(self.user.profile.avatar))
         self.assertIsNone(response.data['user']['avatar'])
+
+
+class ApiDocumentationTests(APITestCase):
+    """Valida esquema OpenAPI y pagina HTML de documentacion."""
+
+    def test_api_root_exposes_docs_links(self):
+        response = self.client.get('/api/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('docs_url', response.data)
+        self.assertIn('schema_url', response.data)
+
+    def test_schema_endpoint_returns_openapi_document(self):
+        response = self.client.get('/api/schema/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['openapi'], '3.0.3')
+        self.assertIn('/api/auth/login/', response.data['paths'])
+        self.assertIn('components', response.data)
+        self.assertIn('securitySchemes', response.data['components'])
+
+    def test_docs_endpoint_renders_html(self):
+        response = self.client.get('/api/docs/', HTTP_ACCEPT='text/html')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(b'Documentacion operativa de GrocerySaver API', response.content)
+        self.assertIn(b'/api/schema/', response.content)

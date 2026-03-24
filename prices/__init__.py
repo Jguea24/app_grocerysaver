@@ -1,0 +1,1 @@
+"""App modular para precios, tiendas y comparaciones."""

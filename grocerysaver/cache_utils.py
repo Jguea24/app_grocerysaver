@@ -11,9 +11,6 @@ logger = logging.getLogger(__name__)
 
 CACHE_NS_CATEGORIES = 'categories'
 CACHE_NS_COMPARE_PRICES = 'compare_prices'
-CACHE_NS_ECUADOR_CANTONS = 'ecuador_cantons'
-CACHE_NS_ECUADOR_GEO = 'ecuador_geo'
-CACHE_NS_ECUADOR_PROVINCES = 'ecuador_provinces'
 CACHE_NS_OFFERS = 'offers'
 CACHE_NS_PRODUCTS = 'products'
 CACHE_NS_RAFFLES = 'raffles'
@@ -23,7 +20,6 @@ CACHE_NS_WEATHER = 'weather'
 
 DEFAULT_CACHE_TTL = getattr(settings, 'CACHE_DEFAULT_TTL', 120)
 CATALOG_CACHE_TTL = getattr(settings, 'CATALOG_CACHE_TTL', DEFAULT_CACHE_TTL)
-GEO_CACHE_TTL = getattr(settings, 'GEO_CACHE_TTL', 3600)
 RAFFLE_CACHE_TTL = getattr(settings, 'RAFFLE_CACHE_TTL', 60)
 WEATHER_CACHE_TTL = getattr(settings, 'WEATHER_CACHE_TTL', 600)
 

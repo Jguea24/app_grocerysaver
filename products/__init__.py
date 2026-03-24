@@ -1,0 +1,1 @@
+"""App modular para catalogo de productos."""

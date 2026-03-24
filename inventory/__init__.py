@@ -1,0 +1,1 @@
+"""App modular para inventario y lista de compras."""

@@ -2,9 +2,7 @@
 
 import re
 import uuid
-from functools import lru_cache
 from json import JSONDecodeError, loads
-from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import urlopen
@@ -23,6 +21,7 @@ User = get_user_model()
 # Endpoints de Open-Meteo usados por el modulo de clima.
 OPEN_METEO_GEOCODING_URL = 'https://geocoding-api.open-meteo.com/v1/search'
 OPEN_METEO_FORECAST_URL = 'https://api.open-meteo.com/v1/forecast'
+GOOGLE_TOKENINFO_URL = 'https://oauth2.googleapis.com/tokeninfo'
 
 # Mapa de codigos weather_code de Open-Meteo a etiquetas legibles en espanol.
 WEATHER_CODE_LABELS = {
@@ -56,10 +55,6 @@ WEATHER_CODE_LABELS = {
     99: 'Tormenta con granizo intenso',
 }
 
-BASE_DIR = Path(__file__).resolve().parent
-ECUADOR_GEO_PATH = BASE_DIR / 'data' / 'ecuador_geo.json'
-
-
 def build_qr_code_value():
     """Genera el valor base de un codigo QR interno."""
     return f'QR-{uuid.uuid4()}'
@@ -89,6 +84,46 @@ def ensure_product_qr_code(product):
         code=build_unique_qr_code(),
         code_type=ProductCodeType.QR,
     )
+
+
+def verify_google_id_token(id_token):
+    """Valida un id_token de Google y retorna identidad normalizada."""
+    client_id = getattr(settings, 'GOOGLE_OAUTH_CLIENT_ID', '').strip()
+    if not client_id:
+        raise ValueError('GOOGLE_OAUTH_CLIENT_ID no esta configurado.')
+
+    query = urlencode({'id_token': id_token})
+    token_url = f'{GOOGLE_TOKENINFO_URL}?{query}'
+
+    try:
+        with urlopen(token_url, timeout=10) as response:
+            payload = loads(response.read().decode('utf-8'))
+    except URLError as exc:
+        raise ValueError('No se pudo validar el token de Google.') from exc
+    except JSONDecodeError as exc:
+        raise ValueError('Respuesta invalida de Google al validar token.') from exc
+
+    if payload.get('aud') != client_id:
+        raise ValueError('El token de Google no pertenece a esta aplicacion.')
+
+    issuer = payload.get('iss')
+    if issuer not in {'accounts.google.com', 'https://accounts.google.com'}:
+        raise ValueError('Issuer invalido para token de Google.')
+
+    if payload.get('email_verified') not in {'true', True}:
+        raise ValueError('La cuenta de Google no tiene email verificado.')
+
+    provider_user_id = payload.get('sub')
+    email = (payload.get('email') or '').strip().lower()
+    if not provider_user_id or not email:
+        raise ValueError('El token de Google no contiene identidad suficiente.')
+
+    return {
+        'provider_user_id': provider_user_id,
+        'email': email,
+        'first_name': (payload.get('given_name') or '').strip(),
+        'last_name': (payload.get('family_name') or '').strip(),
+    }
 
 
 def build_unique_username_from_email(email):
@@ -304,59 +339,4 @@ def get_weather_payload(city=None, latitude=None, longitude=None):
     }
 
 
-@lru_cache(maxsize=1)
-def get_ecuador_geo_data():
-    """Carga el catalogo geografico de Ecuador y lo cachea en memoria."""
-    if not ECUADOR_GEO_PATH.exists():
-        raise ValueError('No existe el catalogo geografico de Ecuador.')
-    try:
-        return loads(ECUADOR_GEO_PATH.read_text(encoding='utf-8'))
-    except JSONDecodeError as exc:
-        raise ValueError('Catalogo geografico invalido.') from exc
 
-
-def get_ecuador_provinces():
-    """Devuelve un resumen ligero de provincias para clientes moviles."""
-    data = get_ecuador_geo_data()
-    provinces = data.get('provinces') or []
-    return [
-        {
-            'id': province.get('id'),
-            'name': province.get('name'),
-            'cantons_count': len(province.get('cantons') or []),
-        }
-        for province in provinces
-    ]
-
-
-def get_ecuador_cantons(province_id=None, province_name=None):
-    """Devuelve los cantones de una provincia buscada por id o nombre."""
-    data = get_ecuador_geo_data()
-    provinces = data.get('provinces') or []
-
-    selected = None
-    if province_id is not None:
-        for province in provinces:
-            if str(province.get('id')) == str(province_id):
-                selected = province
-                break
-    elif province_name:
-        province_name_normalized = province_name.strip().lower()
-        for province in provinces:
-            if (province.get('name') or '').strip().lower() == province_name_normalized:
-                selected = province
-                break
-    else:
-        raise ValueError('Debes enviar province_id o province.')
-
-    if selected is None:
-        raise ValueError('Provincia no encontrada.')
-
-    return {
-        'country': data.get('country', 'Ecuador'),
-        'province': {
-            'id': selected.get('id'),
-            'name': selected.get('name'),
-        },
-        'cantons': selected.get('cantons') or [],
-    }

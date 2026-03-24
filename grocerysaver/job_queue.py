@@ -131,10 +131,36 @@ def iter_export_product_rows(payload):
         ]
 
 
+def is_directory_writable(directory):
+    """Verifica que un directorio exista y permita escrituras reales."""
+    directory.mkdir(parents=True, exist_ok=True)
+    probe = directory / '.write_probe'
+    try:
+        probe.write_text('ok', encoding='utf-8')
+    except OSError:
+        return False
+    finally:
+        if probe.exists():
+            probe.unlink()
+    return True
+
+
+def resolve_export_directory():
+    """Obtiene una carpeta de exportacion escribible incluso si MEDIA_ROOT falla."""
+    preferred_dir = Path(settings.MEDIA_ROOT) / JOB_EXPORTS_DIR
+    if is_directory_writable(preferred_dir):
+        return preferred_dir
+
+    fallback_dir = Path(settings.BASE_DIR) / '.runtime_exports' / JOB_EXPORTS_DIR
+    if is_directory_writable(fallback_dir):
+        return fallback_dir
+
+    raise PermissionError('No existe una carpeta escribible para exportar jobs.')
+
+
 def build_export_file_paths(job, extension):
     """Resuelve la ruta absoluta y relativa del archivo exportado."""
-    export_dir = Path(settings.MEDIA_ROOT) / JOB_EXPORTS_DIR
-    export_dir.mkdir(parents=True, exist_ok=True)
+    export_dir = resolve_export_directory()
 
     filename = f'products-export-{job.job_id}.{extension}'
     absolute_path = export_dir / filename

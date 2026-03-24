@@ -1,4 +1,4 @@
-"""Configuracion principal de Django para GrocerySaver."""  # Describe el proposito del archivo.
+﻿"""Configuracion principal de Django para GrocerySaver."""  # Describe el proposito del archivo.
 
 import os  # Permite leer variables de entorno del sistema.
 from pathlib import Path  # Permite construir rutas de archivos de forma segura.
@@ -21,6 +21,12 @@ INSTALLED_APPS = [  # Lista de aplicaciones habilitadas en Django.
     'rest_framework',  # Django REST Framework para construir la API.
     'rest_framework_simplejwt',  # JWT para autenticacion basada en tokens.
     'rest_framework_simplejwt.token_blacklist',  # Blacklist de tokens refresh invalidados.
+    'users',  # Dominio modular de identidad y perfil.
+    'products',  # Dominio modular de catalogo.
+    'inventory',  # Dominio modular de inventario y compras.
+    'alerts',  # Dominio modular de alertas.
+    'prices',  # Dominio modular de precios.
+    'orders',  # Dominio modular de ordenes y checkout base.
     'grocerysaver',  # Aplicacion principal del proyecto.
 ]  # Fin de aplicaciones instaladas.
 
@@ -99,6 +105,7 @@ REST_FRAMEWORK = {  # Configuracion global de Django REST Framework.
     'DEFAULT_PERMISSION_CLASSES': (  # Permisos por defecto para todos los endpoints.
         'rest_framework.permissions.IsAuthenticated',  # Exige usuario autenticado salvo override.
     ),  # Fin de clases de permiso.
+    'DEFAULT_SCHEMA_CLASS': 'rest_framework.schemas.openapi.AutoSchema',  # Schema OpenAPI base para documentacion.
 }  # Fin de configuracion de DRF.
 
 CORS_ALLOW_ALL_ORIGINS = True  # Permite solicitudes desde cualquier origen en desarrollo.
@@ -106,12 +113,14 @@ CORS_ALLOW_ALL_ORIGINS = True  # Permite solicitudes desde cualquier origen en d
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # Imprime correos en consola en vez de enviarlos.
 DEFAULT_FROM_EMAIL = 'no-reply@grocerysaver.local'  # Remitente por defecto para emails del sistema.
 EMAIL_VERIFICATION_TOKEN_TTL_HOURS = 24  # Horas de validez para tokens de verificacion por email.
+GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '').strip()  # Client ID OAuth usado para validar Google Sign-In.
+AUTO_VERIFY_EMAIL_ON_REGISTER = os.getenv('AUTO_VERIFY_EMAIL_ON_REGISTER', 'true' if DEBUG else 'false').strip().lower() in {'1', 'true', 'yes', 'on'}  # Permite autoactivar usuarios al registrarse en desarrollo.
+AUTO_SEED_EXPIRING_INVENTORY = os.getenv('AUTO_SEED_EXPIRING_INVENTORY', 'true' if DEBUG else 'false').strip().lower() in {'1', 'true', 'yes', 'on'}  # Carga inventario demo por caducar para usuarios nuevos en desarrollo.
 
 # TTLs configurables para la capa de cache de Django.
 CACHE_DEFAULT_TTL = int(os.getenv('CACHE_DEFAULT_TTL', '120'))  # TTL general por defecto en segundos.
 CATALOG_CACHE_TTL = int(os.getenv('CATALOG_CACHE_TTL', str(CACHE_DEFAULT_TTL)))  # TTL del catalogo.
 WEATHER_CACHE_TTL = int(os.getenv('WEATHER_CACHE_TTL', '600'))  # TTL de respuestas del clima.
-GEO_CACHE_TTL = int(os.getenv('GEO_CACHE_TTL', '3600'))  # TTL de datos geograficos.
 RAFFLE_CACHE_TTL = int(os.getenv('RAFFLE_CACHE_TTL', '60'))  # TTL de rifas activas.
 
 REDIS_URL = os.getenv('REDIS_URL', '').strip()  # URL de Redis tomada del entorno si existe.
@@ -135,3 +144,11 @@ else:  # Usa una cache en memoria local si no hay Redis.
             'TIMEOUT': CACHE_DEFAULT_TTL,  # TTL por defecto para entradas de cache.
         }  # Fin de cache por defecto local.
     }  # Fin de configuracion LocMem.
+
+
+INVENTORY_EXPIRY_ALERT_DAYS = int(os.getenv('INVENTORY_EXPIRY_ALERT_DAYS', '3'))  # Dias previos para alertas de caducidad.
+
+
+
+
+

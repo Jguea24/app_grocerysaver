@@ -13,6 +13,7 @@ from django.utils import timezone
 class SocialProvider(models.TextChoices):
     """Proveedores soportados para login social."""
 
+    GOOGLE = 'google', 'Google'
     FACEBOOK = 'facebook', 'Facebook'
     APPLE = 'apple', 'Apple'
 

@@ -1,22 +1,25 @@
 """Vistas HTTP de la API GrocerySaver."""
 
+import json
+import re
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Prefetch
+from django.urls import reverse
 from django.utils import timezone
-from rest_framework import generics, permissions, status
+from rest_framework import generics, permissions, renderers, status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
+from prices.serializers import PriceHistorySerializer
+from inventory.services import seed_demo_expiring_inventory_for_user
 
 from .cache_utils import (
     CACHE_NS_CATEGORIES,
     CACHE_NS_COMPARE_PRICES,
-    CACHE_NS_ECUADOR_CANTONS,
-    CACHE_NS_ECUADOR_GEO,
-    CACHE_NS_ECUADOR_PROVINCES,
     CACHE_NS_OFFERS,
     CACHE_NS_PRODUCTS,
     CACHE_NS_RAFFLES,
@@ -24,7 +27,6 @@ from .cache_utils import (
     CACHE_NS_STORES,
     CACHE_NS_WEATHER,
     CATALOG_CACHE_TTL,
-    GEO_CACHE_TTL,
     RAFFLE_CACHE_TTL,
     WEATHER_CACHE_TTL,
     get_cached_payload,
@@ -81,16 +83,440 @@ from .serializers import (
 )
 from .services import (
     build_unique_username_from_email,
-    get_ecuador_cantons,
-    get_ecuador_geo_data,
-    get_ecuador_provinces,
     get_weather_payload,
     issue_jwt_pair,
     send_email_verification,
+    verify_google_id_token,
 )
 
 
 User = get_user_model()
+
+API_DOC_SECTIONS = [
+    {
+        'id': 'identity',
+        'title': 'Identidad y acceso',
+        'description': 'Registro, verificacion de correo y autenticacion JWT para clientes y administradores.',
+        'endpoints': [
+            {'path': '/api/auth/roles/', 'method': 'GET', 'auth_required': False},
+            {
+                'path': '/api/auth/register/',
+                'method': 'GET',
+                'auth_required': False,
+                'description': 'Guia de campos requeridos para crear una cuenta.',
+            },
+            {
+                'path': '/api/auth/register/',
+                'method': 'POST',
+                'auth_required': False,
+                'description': 'Registrar usuario nuevo.',
+                'body': ['email', 'password', 'confirm_password', 'role', 'address', 'birth_date'],
+            },
+            {'path': '/api/auth/verify-email/', 'method': 'POST', 'auth_required': False},
+            {'path': '/api/auth/login/', 'method': 'POST', 'auth_required': False},
+            {'path': '/api/auth/logout/', 'method': 'POST', 'auth_required': True},
+            {'path': '/api/auth/me/', 'method': 'GET', 'auth_required': True},
+            {
+                'path': '/api/auth/social-login/',
+                'method': 'POST',
+                'auth_required': False,
+                'body': ['provider', 'id_token'],
+                'description': 'Login social real con Google validando id_token en backend.',
+            },
+        ],
+    },
+    {
+        'id': 'catalog',
+        'title': 'Catalogo y discovery',
+        'description': 'Consulta productos, precios, tiendas, ofertas activas y catalogos geograficos.',
+        'endpoints': [
+            {'path': '/api/stores/', 'method': 'GET', 'auth_required': False},
+            {'path': '/api/categories/', 'method': 'GET', 'auth_required': False},
+            {
+                'path': '/api/products/',
+                'method': 'GET',
+                'auth_required': False,
+                'query_params': ['category_id', 'search', 'barcode'],
+            },
+            {
+                'path': '/api/products/<product_id>/',
+                'method': 'GET',
+                'auth_required': False,
+                'description': 'Detalle del producto con precio estimado, historial de compras y alternativas mas economicas.',
+            },
+            {
+                'path': '/api/products/scan/',
+                'method': 'POST',
+                'auth_required': False,
+                'body': ['code', 'code_type?', 'category_id?', 'name?', 'brand?', 'description?', 'store_id?', 'price?'],
+            },
+            {
+                'path': '/api/products/purchases/',
+                'method': 'GET',
+                'auth_required': True,
+                'query_params': ['product_id'],
+            },
+            {
+                'path': '/api/products/purchases/',
+                'method': 'POST',
+                'auth_required': True,
+                'body': ['product_id', 'store_id?', 'quantity', 'unit_price', 'purchased_at?', 'notes?', 'source?'],
+            },
+            {
+                'path': '/api/offers/',
+                'method': 'GET',
+                'auth_required': False,
+                'query_params': ['active', 'store_id', 'product_id', 'category_id', 'search'],
+            },
+            {
+                'path': '/api/compare-prices/',
+                'method': 'GET',
+                'auth_required': False,
+                'query_params': ['product_id', 'product'],
+            },
+            {
+                'path': '/api/prices/history/',
+                'method': 'GET',
+                'auth_required': False,
+                'query_params': ['product_id', 'product', 'store_id', 'limit'],
+            },
+            {
+                'path': '/api/weather/',
+                'method': 'GET',
+                'auth_required': False,
+                'query_params': ['city', 'lat', 'lon'],
+            },
+        ],
+    },
+    {
+        'id': 'customer',
+        'title': 'Perfil y carrito',
+        'description': 'Endpoints autenticados para la experiencia del cliente dentro de la aplicacion.',
+        'endpoints': [
+            {'path': '/api/profile/addresses/', 'method': 'GET', 'auth_required': True},
+            {'path': '/api/profile/addresses/', 'method': 'POST', 'auth_required': True},
+            {'path': '/api/profile/notifications/', 'method': 'GET', 'auth_required': True},
+            {'path': '/api/profile/notifications/', 'method': 'PATCH', 'auth_required': True},
+            {'path': '/api/profile/savings-preferences/', 'method': 'GET', 'auth_required': True},
+            {'path': '/api/profile/savings-preferences/', 'method': 'PATCH', 'auth_required': True},
+            {'path': '/api/profile/role-change-requests/', 'method': 'GET', 'auth_required': True},
+            {'path': '/api/profile/role-change-requests/', 'method': 'POST', 'auth_required': True},
+            {'path': '/api/raffles/active/', 'method': 'GET', 'auth_required': True},
+            {'path': '/api/cart/', 'method': 'GET', 'auth_required': True},
+            {
+                'path': '/api/cart/',
+                'method': 'DELETE',
+                'auth_required': True,
+                'description': 'Vaciar carrito actual.',
+            },
+            {'path': '/api/cart/items/', 'method': 'GET', 'auth_required': True},
+            {
+                'path': '/api/cart/items/',
+                'method': 'POST',
+                'auth_required': True,
+                'body': ['product_id', 'quantity?', 'store_id?'],
+            },
+            {
+                'path': '/api/cart/items/<item_id>/',
+                'method': 'PATCH',
+                'auth_required': True,
+                'body': ['quantity?', 'store_id?'],
+            },
+            {'path': '/api/cart/items/<item_id>/', 'method': 'DELETE', 'auth_required': True},
+            {'path': '/api/checkout/', 'method': 'GET', 'auth_required': True},
+            {'path': '/api/checkout/', 'method': 'POST', 'auth_required': True, 'body': ['notes?'], 'description': 'Crea una sesion de checkout desde el carrito actual sin vaciarlo.'},
+            {'path': '/api/checkout/<checkout_id>/', 'method': 'GET', 'auth_required': True},
+            {'path': '/api/checkout/<checkout_id>/', 'method': 'PATCH', 'auth_required': True, 'body': ['address_id?', 'notes?'], 'description': 'Adjunta direccion y deja el checkout listo para pago.'},
+            {'path': '/api/payments/', 'method': 'GET', 'auth_required': True},
+            {'path': '/api/payments/', 'method': 'POST', 'auth_required': True, 'body': ['checkout_id', 'method', 'provider?', 'simulate_failure?'], 'description': 'Procesa un pago sobre un checkout listo y crea la orden si es exitoso.'},
+            {'path': '/api/payments/<payment_id>/', 'method': 'GET', 'auth_required': True},
+            {'path': '/api/shipments/', 'method': 'GET', 'auth_required': True},
+            {'path': '/api/shipments/<shipment_id>/', 'method': 'GET', 'auth_required': True},
+            {'path': '/api/shipments/<shipment_id>/', 'method': 'PATCH', 'auth_required': True, 'body': ['status?', 'carrier?', 'tracking_number?', 'notes?', 'estimated_delivery_at?'], 'description': 'Actualiza el estado logistico del envio ya creado para la orden pagada.'},
+            {'path': '/api/orders/', 'method': 'GET', 'auth_required': True},
+            {'path': '/api/orders/', 'method': 'POST', 'auth_required': True, 'body': ['address_id', 'notes?'], 'description': 'Crea una orden pendiente de pago a partir del carrito actual.'},
+            {'path': '/api/orders/<order_id>/', 'method': 'GET', 'auth_required': True},
+        ],
+    },
+    {
+        'id': 'ops',
+        'title': 'Operaciones y seguridad',
+        'description': 'Procesos internos, trabajos asincronos y rutas protegidas para control operativo.',
+        'endpoints': [
+            {
+                'path': '/api/jobs/export-products/',
+                'method': 'POST',
+                'auth_required': True,
+                'body': ['category_id?', 'search?'],
+                'description': 'Encola un job para exportar productos a CSV.',
+            },
+            {
+                'path': '/api/jobs/<job_id>/',
+                'method': 'GET',
+                'auth_required': True,
+                'description': 'Consulta estado y resultado de un job.',
+            },
+            {'path': '/api/device-sensors/', 'method': 'POST', 'auth_required': True},
+            {'path': '/api/protected/', 'method': 'GET', 'auth_required': True},
+            {
+                'path': '/api/protected/admin-only/',
+                'method': 'GET',
+                'auth_required': True,
+                'role_required': 'admin',
+            },
+        ],
+    },
+]
+
+
+def build_api_root_payload(request):
+    """Construye el payload del indice HTML/JSON de la API."""
+    docs = []
+    sections = []
+    public_count = 0
+    protected_count = 0
+    admin_count = 0
+
+    for section in API_DOC_SECTIONS:
+        endpoints = []
+        for endpoint in section['endpoints']:
+            doc = dict(endpoint)
+            doc['path_label'] = doc['path'].removeprefix('/api/')
+            doc['absolute_url'] = request.build_absolute_uri(doc['path'])
+            docs.append(doc)
+            endpoints.append(doc)
+            if doc.get('auth_required'):
+                protected_count += 1
+            else:
+                public_count += 1
+            if doc.get('role_required') == 'admin':
+                admin_count += 1
+
+        sections.append(
+            {
+                'id': section['id'],
+                'title': section['title'],
+                'description': section['description'],
+                'endpoints': endpoints,
+                'count': len(endpoints),
+            }
+        )
+
+    return {
+        'message': 'API GrocerySaver activa',
+        'docs': docs,
+        'sections': sections,
+        'stats': [
+            {'label': 'Endpoints visibles', 'value': len(docs), 'hint': 'Cobertura base para integracion y pruebas manuales.'},
+            {'label': 'Rutas publicas', 'value': public_count, 'hint': 'Disponibles sin token.'},
+            {'label': 'Rutas protegidas', 'value': protected_count, 'hint': 'Requieren JWT Bearer.'},
+            {'label': 'Rutas admin', 'value': admin_count, 'hint': 'Acceso exclusivo para rol admin.'},
+        ],
+        'quickstart': [
+            {
+                'title': 'Descubrir roles',
+                'method': 'GET',
+                'path': '/api/auth/roles/',
+                'summary': 'Obtiene los roles disponibles antes del registro.',
+            },
+            {
+                'title': 'Iniciar sesion',
+                'method': 'POST',
+                'path': '/api/auth/login/',
+                'summary': 'Recibe access y refresh token para consumir rutas privadas.',
+            },
+            {
+                'title': 'Validar identidad',
+                'method': 'GET',
+                'path': '/api/auth/me/',
+                'summary': 'Comprueba que el token Bearer es valido y devuelve el perfil actual.',
+            },
+        ],
+        'base_url': get_request_base_url(request),
+        'admin_url': reverse('admin:index'),
+        'docs_url': request.build_absolute_uri('/api/docs/'),
+        'schema_url': request.build_absolute_uri('/api/schema/'),
+        'auth_scheme': 'JWT Bearer',
+        'default_format': 'JSON',
+        'sample_token_header': 'Authorization: Bearer <access_token>',
+    }
+
+
+
+def normalize_openapi_path(path):
+    """Convierte segmentos tipo <item_id> a la sintaxis OpenAPI {item_id}."""
+    return re.sub(r'<([^>]+)>', r'{\1}', path)
+
+
+def infer_openapi_scalar_schema(name):
+    """Infere un schema OpenAPI basico a partir del nombre del campo."""
+    if name in {'price', 'offer_price', 'normal_price', 'lat', 'lon'}:
+        return {'type': 'number'}
+    if name in {'quantity', 'category_id', 'product_id', 'store_id', 'province_id', 'days_remaining'} or name.endswith('_id'):
+        return {'type': 'integer'}
+    if name in {'active', 'push_enabled', 'sms_enabled', 'email_enabled', 'is_shaking'}:
+        return {'type': 'boolean'}
+    if name == 'birth_date':
+        return {'type': 'string', 'format': 'date'}
+    if name in {'captured_at', 'starts_at', 'ends_at'}:
+        return {'type': 'string', 'format': 'date-time'}
+    if name == 'job_id':
+        return {'type': 'string', 'format': 'uuid'}
+    if name in {'accelerometer', 'gyroscope'}:
+        return {
+            'type': 'object',
+            'properties': {
+                'x': {'type': 'number'},
+                'y': {'type': 'number'},
+                'z': {'type': 'number'},
+            },
+            'required': ['x', 'y', 'z'],
+        }
+    return {'type': 'string'}
+
+
+def build_openapi_parameters(endpoint):
+    """Genera parametros query/path a partir de la documentacion manual."""
+    parameters = []
+    for raw_name in endpoint.get('query_params', []):
+        name = raw_name.rstrip('?')
+        parameters.append(
+            {
+                'name': name,
+                'in': 'query',
+                'required': not raw_name.endswith('?'),
+                'schema': infer_openapi_scalar_schema(name),
+            }
+        )
+
+    for path_name in re.findall(r'<([^>]+)>', endpoint['path']):
+        parameters.append(
+            {
+                'name': path_name,
+                'in': 'path',
+                'required': True,
+                'schema': infer_openapi_scalar_schema(path_name),
+            }
+        )
+    return parameters
+
+
+def build_openapi_request_body(endpoint):
+    """Construye un requestBody simple para endpoints documentados con body."""
+    body_fields = endpoint.get('body', [])
+    if not body_fields:
+        return None
+
+    properties = {}
+    required = []
+    for raw_field in body_fields:
+        field_name = raw_field.rstrip('?')
+        properties[field_name] = infer_openapi_scalar_schema(field_name)
+        if not raw_field.endswith('?'):
+            required.append(field_name)
+
+    body_schema = {'type': 'object', 'properties': properties}
+    if required:
+        body_schema['required'] = required
+
+    return {
+        'required': True,
+        'content': {
+            'application/json': {
+                'schema': body_schema,
+            }
+        },
+    }
+
+
+def build_openapi_schema(request):
+    """Genera un documento OpenAPI 3 basico desde la matriz manual de endpoints."""
+    base_server = request.build_absolute_uri('/').rstrip('/')
+    tags = []
+    paths = {}
+
+    for section in API_DOC_SECTIONS:
+        tags.append({'name': section['title'], 'description': section['description']})
+        for endpoint in section['endpoints']:
+            path_key = normalize_openapi_path(endpoint['path'])
+            method = endpoint['method'].lower()
+            operation = {
+                'tags': [section['title']],
+                'operationId': f"{section['id']}_{method}_{path_key.strip('/').replace('/', '_').replace('{', '').replace('}', '')}",
+                'summary': endpoint.get('description') or f"{endpoint['method']} {endpoint['path']}",
+                'responses': {
+                    '200': {'description': 'Respuesta exitosa'},
+                    '400': {'description': 'Solicitud invalida'},
+                    '401': {'description': 'No autenticado'},
+                    '403': {'description': 'Sin permisos'},
+                    '404': {'description': 'Recurso no encontrado'},
+                },
+                'parameters': build_openapi_parameters(endpoint),
+            }
+
+            if endpoint.get('auth_required'):
+                operation['security'] = [{'BearerAuth': []}]
+
+            request_body = build_openapi_request_body(endpoint)
+            if request_body is not None and method in {'post', 'put', 'patch'}:
+                operation['requestBody'] = request_body
+
+            if method == 'post':
+                operation['responses']['201'] = {'description': 'Recurso creado'}
+            if method == 'delete':
+                operation['responses']['204'] = {'description': 'Recurso eliminado'}
+
+            paths.setdefault(path_key, {})[method] = operation
+
+    return {
+        'openapi': '3.0.3',
+        'info': {
+            'title': 'GrocerySaver API',
+            'version': '1.0.0',
+            'description': 'Backend para inventario del hogar, compras inteligentes y comparacion de precios.',
+        },
+        'servers': [
+            {'url': base_server},
+        ],
+        'tags': tags,
+        'components': {
+            'securitySchemes': {
+                'BearerAuth': {
+                    'type': 'http',
+                    'scheme': 'bearer',
+                    'bearerFormat': 'JWT',
+                }
+            }
+        },
+        'paths': paths,
+    }
+
+
+def build_api_docs_payload(request):
+    """Compone el contexto HTML para la pagina de documentacion."""
+    payload = build_api_root_payload(request)
+    schema = build_openapi_schema(request)
+    payload.update(
+        {
+            'page_title': 'Documentacion OpenAPI',
+            'docs_url': request.build_absolute_uri('/api/docs/'),
+            'schema_url': request.build_absolute_uri('/api/schema/'),
+            'schema_download_url': request.build_absolute_uri('/api/schema/?download=1'),
+            'openapi_version': schema['openapi'],
+            'api_version': schema['info']['version'],
+            'schema_preview': json.dumps(
+                {
+                    'openapi': schema['openapi'],
+                    'info': schema['info'],
+                    'servers': schema['servers'],
+                    'paths_count': len(schema['paths']),
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+        }
+    )
+    return payload
 
 
 def cache_aware_response(payload, cache_hit):
@@ -107,6 +533,9 @@ def get_request_base_url(request):
 
 def build_user_response(user, request=None):
     """Construye un payload consistente de usuario autenticado."""
+    from users.models import UserSavingsPreference
+    from users.serializers import UserSavingsPreferenceSerializer
+
     profile = getattr(user, 'profile', None)
     role_name = profile.role.name if profile and profile.role else None
     avatar_url = None
@@ -114,6 +543,11 @@ def build_user_response(user, request=None):
         avatar_url = profile.avatar.url
         if request is not None:
             avatar_url = request.build_absolute_uri(avatar_url)
+
+    savings_preference = None
+    if getattr(user, 'is_authenticated', False):
+        savings_preference, _ = UserSavingsPreference.objects.get_or_create(user=user)
+
     return {
         'id': user.id,
         'username': user.username,
@@ -126,6 +560,7 @@ def build_user_response(user, request=None):
         'address': profile.address if profile else None,
         'birth_date': str(profile.birth_date) if profile and profile.birth_date else None,
         'avatar': avatar_url,
+        'savings_preferences': UserSavingsPreferenceSerializer(savings_preference).data if savings_preference else None,
     }
 
 
@@ -201,18 +636,31 @@ class RegisterView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
 
         user = serializer.save()
-        verification = EmailVerificationToken.create_for_user(
-            user=user,
-            ttl_hours=getattr(settings, 'EMAIL_VERIFICATION_TOKEN_TTL_HOURS', 24),
-        )
-        send_email_verification(user=user, token=verification.token)
+        auto_verify = getattr(settings, 'AUTO_VERIFY_EMAIL_ON_REGISTER', False)
 
-        response_data = {
-            'message': 'Registro exitoso. Revisa tu correo para verificar la cuenta.',
-        }
-        if settings.DEBUG:
-            response_data['verification_token_debug'] = str(verification.token)
+        if auto_verify:
+            user.is_active = True
+            user.save(update_fields=['is_active'])
+            response_data = {
+                'message': 'Registro exitoso. Ya puedes iniciar sesion.',
+                'email_verification_required': False,
+                'user': build_user_response(user, request=request),
+            }
+        else:
+            verification = EmailVerificationToken.create_for_user(
+                user=user,
+                ttl_hours=getattr(settings, 'EMAIL_VERIFICATION_TOKEN_TTL_HOURS', 24),
+            )
+            send_email_verification(user=user, token=verification.token)
 
+            response_data = {
+                'message': 'Registro exitoso. Revisa tu correo para verificar la cuenta.',
+                'email_verification_required': True,
+            }
+            if settings.DEBUG:
+                response_data['verification_token_debug'] = str(verification.token)
+
+        seed_demo_expiring_inventory_for_user(user)
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 
@@ -220,205 +668,39 @@ class ApiRootView(APIView):
     """Indice simple de rutas disponibles para exploracion manual."""
 
     permission_classes = [permissions.AllowAny]
+    renderer_classes = [renderers.JSONRenderer, renderers.TemplateHTMLRenderer, renderers.BrowsableAPIRenderer]
 
     def get(self, request):
-        return Response(
-            {
-                'message': 'API GrocerySaver activa',
-                'docs': [
-                    {
-                        'path': '/api/auth/roles/',
-                        'method': 'GET',
-                        'auth_required': False,
-                    },
-                    {
-                        'path': '/api/auth/register/',
-                        'method': 'GET',
-                        'auth_required': False,
-                        'description': 'Guia del endpoint de registro.',
-                    },
-                    {
-                        'path': '/api/auth/register/',
-                        'method': 'POST',
-                        'auth_required': False,
-                        'description': 'Registrar usuario nuevo.',
-                    },
-                    {
-                        'path': '/api/auth/verify-email/',
-                        'method': 'POST',
-                        'auth_required': False,
-                    },
-                    {
-                        'path': '/api/auth/login/',
-                        'method': 'POST',
-                        'auth_required': False,
-                    },
-                    {
-                        'path': '/api/auth/logout/',
-                        'method': 'POST',
-                        'auth_required': True,
-                    },
-                    {
-                        'path': '/api/auth/me/',
-                        'method': 'GET',
-                        'auth_required': True,
-                    },
-                    {
-                        'path': '/api/auth/social-login/',
-                        'method': 'POST',
-                        'auth_required': False,
-                    },
-                    {
-                        'path': '/api/stores/',
-                        'method': 'GET',
-                        'auth_required': False,
-                    },
-                    {
-                        'path': '/api/categories/',
-                        'method': 'GET',
-                        'auth_required': False,
-                    },
-                    {
-                        'path': '/api/products/',
-                        'method': 'GET',
-                        'auth_required': False,
-                        'query_params': ['category_id', 'search'],
-                    },
-                    {
-                        'path': '/api/products/scan/',
-                        'method': 'POST',
-                        'auth_required': False,
-                        'body': ['code', 'code_type?', 'category_id?', 'name?', 'brand?', 'description?', 'store_id?', 'price?'],
-                    },
-                    {
-                        'path': '/api/offers/',
-                        'method': 'GET',
-                        'auth_required': False,
-                        'query_params': ['active', 'store_id', 'product_id', 'category_id', 'search'],
-                    },
-                    {
-                        'path': '/api/compare-prices/',
-                        'method': 'GET',
-                        'auth_required': False,
-                        'query_params': ['product_id', 'product'],
-                    },
-                    {
-                        'path': '/api/weather/',
-                        'method': 'GET',
-                        'auth_required': False,
-                        'query_params': ['city', 'lat', 'lon'],
-                    },
-                    {
-                        'path': '/api/jobs/export-products/',
-                        'method': 'POST',
-                        'auth_required': True,
-                        'body': ['category_id?', 'search?'],
-                        'description': 'Encola un job para exportar productos a CSV.',
-                    },
-                    {
-                        'path': '/api/jobs/<job_id>/',
-                        'method': 'GET',
-                        'auth_required': True,
-                        'description': 'Consulta estado y resultado de un job.',
-                    },
-                    {
-                        'path': '/api/geo/ecuador/',
-                        'method': 'GET',
-                        'auth_required': False,
-                    },
-                    {
-                        'path': '/api/geo/ecuador/provinces/',
-                        'method': 'GET',
-                        'auth_required': False,
-                    },
-                    {
-                        'path': '/api/geo/ecuador/cantons/',
-                        'method': 'GET',
-                        'auth_required': False,
-                        'query_params': ['province_id', 'province'],
-                    },
-                    {
-                        'path': '/api/profile/addresses/',
-                        'method': 'GET',
-                        'auth_required': True,
-                    },
-                    {
-                        'path': '/api/cart/',
-                        'method': 'GET',
-                        'auth_required': True,
-                    },
-                    {
-                        'path': '/api/cart/',
-                        'method': 'DELETE',
-                        'auth_required': True,
-                        'description': 'Vaciar carrito actual.',
-                    },
-                    {
-                        'path': '/api/cart/items/',
-                        'method': 'GET',
-                        'auth_required': True,
-                    },
-                    {
-                        'path': '/api/cart/items/',
-                        'method': 'POST',
-                        'auth_required': True,
-                        'body': ['product_id', 'quantity?', 'store_id?'],
-                    },
-                    {
-                        'path': '/api/cart/items/<item_id>/',
-                        'method': 'PATCH',
-                        'auth_required': True,
-                        'body': ['quantity?', 'store_id?'],
-                    },
-                    {
-                        'path': '/api/cart/items/<item_id>/',
-                        'method': 'DELETE',
-                        'auth_required': True,
-                    },
-                    {
-                        'path': '/api/profile/addresses/',
-                        'method': 'POST',
-                        'auth_required': True,
-                    },
-                    {
-                        'path': '/api/profile/notifications/',
-                        'method': 'GET',
-                        'auth_required': True,
-                    },
-                    {
-                        'path': '/api/profile/notifications/',
-                        'method': 'PATCH',
-                        'auth_required': True,
-                    },
-                    {
-                        'path': '/api/raffles/active/',
-                        'method': 'GET',
-                        'auth_required': True,
-                    },
-                    {
-                        'path': '/api/profile/role-change-requests/',
-                        'method': 'GET',
-                        'auth_required': True,
-                    },
-                    {
-                        'path': '/api/profile/role-change-requests/',
-                        'method': 'POST',
-                        'auth_required': True,
-                    },
-                    {
-                        'path': '/api/protected/',
-                        'method': 'GET',
-                        'auth_required': True,
-                    },
-                    {
-                        'path': '/api/protected/admin-only/',
-                        'method': 'GET',
-                        'auth_required': True,
-                        'role_required': 'admin',
-                    },
-                ],
-            }
-        )
+        payload = build_api_root_payload(request)
+        if getattr(request.accepted_renderer, 'format', None) == 'html':
+            return Response(payload, template_name='grocerysaver/api_root.html')
+        return Response(payload)
+
+
+class ApiSchemaView(APIView):
+    """Expone un documento OpenAPI JSON sin dependencias externas."""
+
+    permission_classes = [permissions.AllowAny]
+    renderer_classes = [renderers.JSONRenderer, renderers.BrowsableAPIRenderer]
+
+    def get(self, request):
+        payload = build_openapi_schema(request)
+        response = Response(payload)
+        response['Content-Type'] = 'application/vnd.oai.openapi+json'
+        if request.query_params.get('download') == '1':
+            response['Content-Disposition'] = 'attachment; filename="grocerysaver-openapi.json"'
+        return response
+
+
+class ApiDocsView(APIView):
+    """Renderiza una pagina HTML de documentacion para consumo humano."""
+
+    permission_classes = [permissions.AllowAny]
+    renderer_classes = [renderers.TemplateHTMLRenderer, renderers.BrowsableAPIRenderer]
+
+    def get(self, request):
+        payload = build_api_docs_payload(request)
+        return Response(payload, template_name='grocerysaver/api_docs.html')
 
 
 class RoleListView(APIView):
@@ -733,64 +1015,6 @@ class WeatherView(APIView):
         return cache_aware_response(payload, cache_hit)
 
 
-class EcuadorGeoView(APIView):
-    """Entrega el catalogo geografico completo de Ecuador."""
-
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request):
-        def build_payload():
-            data = get_ecuador_geo_data()
-            return {
-                'country': data.get('country', 'Ecuador'),
-                'provinces': data.get('provinces') or [],
-            }
-
-        payload, cache_hit = get_cached_payload(
-            CACHE_NS_ECUADOR_GEO,
-            build_payload,
-            ttl=GEO_CACHE_TTL,
-        )
-        return cache_aware_response(payload, cache_hit)
-
-
-class EcuadorProvinceListView(APIView):
-    """Entrega un resumen liviano de provincias del Ecuador."""
-
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request):
-        payload, cache_hit = get_cached_payload(
-            CACHE_NS_ECUADOR_PROVINCES,
-            lambda: {'country': 'Ecuador', 'provinces': get_ecuador_provinces()},
-            ttl=GEO_CACHE_TTL,
-        )
-        return cache_aware_response(payload, cache_hit)
-
-
-class EcuadorCantonListView(APIView):
-    """Entrega los cantones de una provincia especifica."""
-
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request):
-        province_id = request.query_params.get('province_id')
-        province_name = request.query_params.get('province')
-        try:
-            payload, cache_hit = get_cached_payload(
-                CACHE_NS_ECUADOR_CANTONS,
-                lambda: get_ecuador_cantons(province_id=province_id, province_name=province_name),
-                params={
-                    'province_id': province_id or '',
-                    'province_name': (province_name or '').strip().lower(),
-                },
-                ttl=GEO_CACHE_TTL,
-            )
-        except ValueError as exc:
-            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return cache_aware_response(payload, cache_hit)
-
-
 class ProductListView(APIView):
     """Lista productos, precios y mejor opcion disponible."""
 
@@ -801,7 +1025,7 @@ class ProductListView(APIView):
         search = request.query_params.get('search')
 
         def build_payload():
-            queryset = Product.objects.select_related('category').prefetch_related('prices__store', 'codes')
+            queryset = Product.objects.select_related('category').prefetch_related('prices__store', 'codes', 'price_history__store')
 
             if category_id:
                 queryset_filtered = queryset.filter(category_id=category_id)
@@ -1058,7 +1282,7 @@ class ProductPriceComparisonView(APIView):
             )
 
         def build_payload():
-            queryset = Product.objects.select_related('category').prefetch_related('prices__store', 'codes')
+            queryset = Product.objects.select_related('category').prefetch_related('prices__store', 'codes', 'price_history__store')
             if product_id:
                 product = queryset.filter(id=product_id).first()
             else:
@@ -1074,6 +1298,7 @@ class ProductPriceComparisonView(APIView):
                 return {
                     'product': ProductSerializer(product, context={'request': request}).data,
                     'prices': [],
+                    'price_history': PriceHistorySerializer(product.price_history.select_related('store').all()[:12], many=True).data,
                     'stores_available': 0,
                     'best_option': None,
                     'most_expensive_option': None,
@@ -1097,6 +1322,7 @@ class ProductPriceComparisonView(APIView):
                     },
                 ).data,
                 'prices': ProductPriceSerializer(prices, many=True).data,
+                'price_history': PriceHistorySerializer(product.price_history.select_related('store').all()[:12], many=True).data,
                 'stores_available': prices.count(),
                 'best_option': {
                     'store': best_option.store.name,
@@ -1356,10 +1582,11 @@ class SocialLoginView(APIView):
         serializer.is_valid(raise_exception=True)
 
         provider = serializer.validated_data['provider']
-        provider_user_id = serializer.validated_data['provider_user_id']
-        email = serializer.validated_data['email'].lower()
-        first_name = serializer.validated_data.get('first_name', '')
-        last_name = serializer.validated_data.get('last_name', '')
+        identity = verify_google_id_token(serializer.validated_data['id_token'])
+        provider_user_id = identity['provider_user_id']
+        email = identity['email']
+        first_name = identity.get('first_name', '')
+        last_name = identity.get('last_name', '')
 
         social_account = SocialAccount.objects.select_related('user').filter(
             provider=provider,
@@ -1392,6 +1619,8 @@ class SocialLoginView(APIView):
                 email=email,
             )
 
+        seed_demo_expiring_inventory_for_user(user)
+
         return Response(
             {
                 'message': 'Autenticacion social exitosa.',
@@ -1400,3 +1629,9 @@ class SocialLoginView(APIView):
                 'user': build_user_response(user, request=request),
             }
         )
+
+
+
+
+
+

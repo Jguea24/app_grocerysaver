@@ -189,10 +189,12 @@ class SocialLoginSerializer(serializers.Serializer):
     """Valida el payload minimo para login social delegado."""
 
     provider = serializers.ChoiceField(choices=SocialProvider.values)
-    provider_user_id = serializers.CharField(max_length=255)
-    email = serializers.EmailField()
-    first_name = serializers.CharField(required=False, allow_blank=True, max_length=150)
-    last_name = serializers.CharField(required=False, allow_blank=True, max_length=150)
+    id_token = serializers.CharField()
+
+    def validate_provider(self, value):
+        if value != SocialProvider.GOOGLE:
+            raise serializers.ValidationError('Por ahora solo Google esta habilitado.')
+        return value
 
 
 class LogoutSerializer(serializers.Serializer):
@@ -416,12 +418,14 @@ class ProductSerializer(serializers.ModelSerializer):
     """Serializa productos y resuelve su QR usando batching por request."""
 
     category = CategorySerializer(read_only=True)
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    category_image = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
     qr_code = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields = ['id', 'name', 'brand', 'description', 'image', 'category', 'qr_code']
+        fields = ['id', 'name', 'brand', 'description', 'image', 'category', 'category_name', 'category_image', 'qr_code']
 
     def get_image(self, obj):
         if not obj.image:
@@ -430,6 +434,16 @@ class ProductSerializer(serializers.ModelSerializer):
         if request is not None:
             return request.build_absolute_uri(obj.image.url)
         return obj.image.url
+
+    def get_category_image(self, obj):
+        category = getattr(obj, 'category', None)
+        if category is None or not category.image:
+            return None
+
+        request = self.context.get('request')
+        if request is not None:
+            return request.build_absolute_uri(category.image.url)
+        return category.image.url
 
     def get_qr_code(self, obj):
         qr_codes_by_product_id = self.context.get('qr_codes_by_product_id')
