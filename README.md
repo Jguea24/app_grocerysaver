@@ -1,21 +1,19 @@
 # GrocerySaver API
 
-Backend API para GrocerySaver construido con Django, Django REST Framework, JWT y PostgreSQL.
+Backend API de GrocerySaver construido con Django, Django REST Framework, JWT y PostgreSQL.
 
 ## Caracteristicas
 
-- Autenticacion con JWT
-- Registro, login, verificacion de correo y social login
-- Catalogo de tiendas, categorias, productos, ofertas y comparacion de precios
-- Carrito persistido por usuario autenticado
-- Escaneo de productos por codigo
-- Clima con Open-Meteo
-- Catalogo geografico de Ecuador
-- Cache para consultas repetitivas
-- Prevencion de N+1 con batching/caching por request
-- Cola de trabajos para exportacion de productos en TXT, CSV y PDF
-- Lecturas de sensores del dispositivo
-- Avatar de perfil con subida de imagen
+- Arquitectura modular por apps: `users`, `products`, `prices`, `inventory`, `alerts`, `orders`.
+- Autenticacion con JWT (registro, login, logout, perfil, login social Google).
+- Catalogo de productos, categorias, tiendas, ofertas y comparador de precios.
+- Carrito persistido por usuario.
+- Flujo de compra completo: `Carrito -> Checkout -> Payment -> Order -> Shipment`.
+- Inventario del hogar con fecha de caducidad.
+- Alertas automaticas por caducidad.
+- Historial de precios y comparacion de precios.
+- Exportacion de productos por jobs en segundo plano.
+- Documentacion viva en `/api/docs/` y esquema OpenAPI en `/api/schema/`.
 
 ## Stack
 
@@ -28,21 +26,25 @@ Backend API para GrocerySaver construido con Django, Django REST Framework, JWT 
 ## Estructura
 
 ```text
-api_grocerysaver/     configuracion del proyecto Django
-grocerysaver/         app principal
-media/                archivos subidos y exportaciones
-venv/                 entorno virtual local
+api_grocerysaver/     configuracion del proyecto
+alerts/               dominio de alertas
+grocerysaver/         app base y endpoints generales
+inventory/            inventario y carrito
+orders/               checkout, pagos, ordenes, envios
+prices/               tiendas, ofertas, comparador, historial
+products/             productos, categorias, compras
+users/                autenticacion y perfil
 manage.py
 ```
 
 ## Requisitos
 
-- PostgreSQL levantado en `localhost:5432`
+- PostgreSQL en `localhost:5432`
 - Base de datos `grocerysaver`
 - Usuario `grocery_user`
-- Entorno virtual en `.\venv`
+- Entorno virtual en `./venv`
 
-La configuracion actual del proyecto usa estos valores en `api_grocerysaver/settings.py`:
+Configuracion actual de base de datos en `api_grocerysaver/settings.py`:
 
 ```python
 DATABASES = {
@@ -77,92 +79,31 @@ Levantar servidor:
 .\venv\Scripts\python.exe manage.py runserver
 ```
 
-La API queda disponible en:
+API base:
 
 ```text
 http://127.0.0.1:8000/api/
 ```
 
-## Cache
+## Variables de entorno relevantes
 
-El proyecto usa cache de Django para endpoints repetitivos.
-
-- Por defecto: `LocMemCache`
-- Opcional: Redis si defines `REDIS_URL`
-
-Variables soportadas:
-
+- `GOOGLE_OAUTH_CLIENT_ID`
+- `AUTO_VERIFY_EMAIL_ON_REGISTER`
+- `AUTO_SEED_EXPIRING_INVENTORY`
+- `INVENTORY_EXPIRY_ALERT_DAYS`
+- `REDIS_URL`
 - `CACHE_DEFAULT_TTL`
 - `CATALOG_CACHE_TTL`
 - `WEATHER_CACHE_TTL`
-- `GEO_CACHE_TTL`
 - `RAFFLE_CACHE_TTL`
-- `REDIS_URL`
-
-Si `REDIS_URL` existe, Django usa `RedisCache`. Si no, usa memoria local.
-
-## DataLoader / N+1
-
-El proyecto incluye batching + cache por request para evitar N+1 al resolver relaciones repetidas, especialmente QR codes de productos.
-
-Archivos relacionados:
-
-- `grocerysaver/dataloaders.py`
-- `grocerysaver/serializers.py`
-- `grocerysaver/views.py`
-
-## Job Queue
-
-Se implemento una cola de trabajos basada en base de datos para exportar productos en TXT, CSV o PDF.
-
-### Endpoints
-
-Encolar exportacion:
-
-```http
-POST /api/jobs/export-products/
-Authorization: Bearer <token>
-Content-Type: application/json
-```
-
-Body opcional:
-
-```json
-{
-  "format": "pdf",
-  "category_id": 1,
-  "search": "leche"
-}
-```
-
-Consultar estado:
-
-```http
-GET /api/jobs/<job_id>/
-Authorization: Bearer <token>
-```
-
-### Worker
-
-Para procesar jobs debes correr un worker en otra terminal:
-
-```powershell
-.\venv\Scripts\python.exe manage.py run_job_worker
-```
-
-Procesar solo un job:
-
-```powershell
-.\venv\Scripts\python.exe manage.py run_job_worker --once
-```
-
-Los archivos generados se guardan en:
-
-```text
-media/job_exports/
-```
 
 ## Endpoints principales
+
+### API y docs
+
+- `GET /api/`
+- `GET /api/docs/`
+- `GET /api/schema/`
 
 ### Auth
 
@@ -176,18 +117,25 @@ media/job_exports/
 - `DELETE /api/auth/me/avatar/`
 - `POST /api/auth/social-login/`
 
+### Perfil
+
+- `GET/POST /api/profile/addresses/`
+- `PATCH/DELETE /api/profile/addresses/<address_id>/`
+- `GET/PATCH /api/profile/notifications/`
+- `GET/PATCH /api/profile/savings-preferences/`
+- `GET/POST /api/profile/role-change-requests/`
+
 ### Catalogo
 
 - `GET /api/stores/`
 - `GET /api/categories/`
 - `GET /api/products/`
+- `GET /api/products/<product_id>/`
 - `POST /api/products/scan/`
+- `GET/POST /api/products/purchases/`
 - `GET /api/offers/`
 - `GET /api/compare-prices/`
-
-### Device Sensors
-
-- `POST /api/device-sensors/`
+- `GET /api/prices/history/`
 
 ### Carrito
 
@@ -198,49 +146,95 @@ media/job_exports/
 - `PATCH /api/cart/items/<item_id>/`
 - `DELETE /api/cart/items/<item_id>/`
 
-### Geo y clima
+### Checkout, pago, orden y envio
 
+- `GET /api/checkout/`
+- `POST /api/checkout/`
+- `GET /api/checkout/<checkout_id>/`
+- `PATCH /api/checkout/<checkout_id>/`
+- `GET /api/payments/`
+- `POST /api/payments/`
+- `GET /api/payments/<payment_id>/`
+- `GET /api/orders/`
+- `POST /api/orders/`
+- `GET /api/orders/<order_id>/`
+- `GET /api/shipments/`
+- `GET /api/shipments/<shipment_id>/`
+- `PATCH /api/shipments/<shipment_id>/`
+
+### Inventario y alertas
+
+- `GET /api/inventory/items/`
+- `POST /api/inventory/items/`
+- `PATCH /api/inventory/items/<id>/`
+- `DELETE /api/inventory/items/<id>/`
+- `GET /api/alerts/`
+- `PATCH /api/alerts/<id>/`
+
+### Otros
+
+- `GET /api/raffles/active/`
+- `POST /api/device-sensors/`
+- `POST /api/jobs/export-products/`
+- `GET /api/jobs/<job_id>/`
 - `GET /api/weather/`
-- `GET /api/geo/ecuador/`
-- `GET /api/geo/ecuador/provinces/`
-- `GET /api/geo/ecuador/cantons/`
+- `GET /api/protected/`
+- `GET /api/protected/admin-only/`
 
-### Perfil
+## Flujo recomendado de compra
 
-- `GET/POST /api/profile/addresses/`
-- `PATCH/DELETE /api/profile/addresses/<address_id>/`
-- `GET/PATCH /api/profile/notifications/`
-- `GET/POST /api/profile/role-change-requests/`
+1. Agregar items al carrito (`/api/cart/items/`).
+2. Crear checkout (`POST /api/checkout/`).
+3. Asociar direccion (`PATCH /api/checkout/<id>/`).
+4. Procesar pago (`POST /api/payments/`).
+5. Consultar orden (`/api/orders/`).
+6. Consultar seguimiento (`/api/shipments/`).
+
+Nota: si intentas pagar sin direccion en checkout, el backend responde `400`.
+
+## Jobs y comandos utiles
+
+Worker de exportaciones:
+
+```powershell
+.\venv\Scripts\python.exe manage.py run_job_worker
+```
+
+Procesar un solo job:
+
+```powershell
+.\venv\Scripts\python.exe manage.py run_job_worker --once
+```
+
+Sincronizar alertas de inventario:
+
+```powershell
+.\venv\Scripts\python.exe manage.py sync_inventory_alerts
+```
 
 ## Testing
 
-Correr tests:
+Suite completa de ordenes (checkout, payment, shipment):
 
 ```powershell
-.\venv\Scripts\python.exe manage.py test grocerysaver.tests
+.\venv\Scripts\python.exe manage.py test orders.tests --keepdb
 ```
 
-Estado actual:
+Chequeo de proyecto:
 
-- la suite completa pasa
-
-## Flutter
-
-Para Android Emulator usa:
-
-```text
-http://10.0.2.2:8000/api/
+```powershell
+.\venv\Scripts\python.exe manage.py check
 ```
 
-Para celular fisico usa la IP local de tu PC.
+## Guia rapida Flutter
 
-## Archivos importantes
+Base URL:
 
-- `api_grocerysaver/settings.py`
-- `grocerysaver/models.py`
-- `grocerysaver/views.py`
-- `grocerysaver/serializers.py`
-- `grocerysaver/services.py`
-- `grocerysaver/cache_utils.py`
-- `grocerysaver/dataloaders.py`
-- `grocerysaver/job_queue.py`
+- Web: `http://127.0.0.1:8000/api`
+- Android emulator: `http://10.0.2.2:8000/api`
+
+Para la lista de compras (carrito), usa `GET /api/cart/items/` y lee `response['items']`.
+
+Para inventario, usa `GET /api/inventory/items/` y lee `response['items']`.
+
+Para alertas de caducidad, usa `GET /api/alerts/?status=active` y lee `response['alerts']`.
