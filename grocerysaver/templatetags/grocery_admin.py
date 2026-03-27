@@ -1,13 +1,14 @@
-"""Template tags para alimentar el dashboard visual del admin."""
+﻿"""Template tags para alimentar el dashboard visual del admin."""
 
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum
 from django.template import Library
 from django.utils import timezone
 
-from grocerysaver.models import BackgroundJob, Cart, CartItem, Category, JobStatus, Offer, Product, ProductPrice, Store
+from grocerysaver.models import Cart, CartItem, Category, Offer, Product, ProductPrice, Store
+from orders.models import OrderItem, OrderStatus
 
 
 register = Library()
@@ -21,11 +22,27 @@ def build_last_days_labels(days):
     return dates, labels
 
 
+def get_top_seller_label(filters):
+    """Entrega el producto mas vendido segun el filtro recibido."""
+    top_item = (
+        OrderItem.objects.filter(order__status=OrderStatus.PLACED, **filters)
+        .values('product_name')
+        .annotate(total=Sum('quantity'))
+        .order_by('-total', 'product_name')
+        .first()
+    )
+    if not top_item:
+        return 'Sin ventas'
+    return f"{top_item['product_name']} ({top_item['total']})"
+
+
+
 @register.simple_tag
 def grocery_dashboard_data():
     """Retorna metricas y datasets para la portada personalizada del admin."""
     user_model = get_user_model()
     now = timezone.now()
+    today = timezone.localdate()
 
     total_products = Product.objects.count()
     total_categories = Category.objects.count()
@@ -35,7 +52,9 @@ def grocery_dashboard_data():
     active_offers = Offer.objects.filter(starts_at__lte=now, ends_at__gte=now).count()
     carts_with_items = Cart.objects.filter(items__isnull=False).distinct().count()
     cart_items_total = CartItem.objects.count()
-    pending_jobs = BackgroundJob.objects.filter(status__in=[JobStatus.QUEUED, JobStatus.PROCESSING]).count()
+    top_seller_day = get_top_seller_label({'created_at__date': today})
+    top_seller_month = get_top_seller_label({'created_at__year': today.year, 'created_at__month': today.month})
+    top_seller_year = get_top_seller_label({'created_at__year': today.year})
 
     offer_state_counts = Offer.objects.aggregate(
         active=Count('id', filter=Q(starts_at__lte=now, ends_at__gte=now)),
@@ -109,10 +128,22 @@ def grocery_dashboard_data():
             'hint': f'{cart_items_total} items en carritos',
         },
         {
-            'label': 'Jobs pendientes',
-            'value': pending_jobs,
+            'label': 'Mas vendido (dia)',
+            'value': top_seller_day,
             'accent': 'pink',
-            'hint': 'Exportaciones en cola o proceso',
+            'hint': f"Dia: {today.strftime('%d %b %Y')}",
+        },
+        {
+            'label': 'Mas vendido (mes)',
+            'value': top_seller_month,
+            'accent': 'orange',
+            'hint': f"Mes: {today.strftime('%b %Y')}",
+        },
+        {
+            'label': 'Mas vendido (ano)',
+            'value': top_seller_year,
+            'accent': 'violet',
+            'hint': f"Ano: {today.year}",
         },
     ]
 
@@ -167,3 +198,4 @@ def grocery_dashboard_data():
         'metrics': metrics,
         'charts': charts,
     }
+

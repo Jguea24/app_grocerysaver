@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
     function getDashboardData() {
         const node = document.getElementById('grocery-dashboard-data');
         if (!node) {
@@ -88,7 +88,6 @@
         ctx.fillStyle = '#8da3bf';
         ctx.fillText('ofertas', centerX, centerY + 28);
     }
-
     function drawHorizontalBars(canvas, config) {
         const { ctx, width, height } = setupCanvas(canvas);
         const left = 110;
@@ -232,3 +231,5 @@
     document.addEventListener('DOMContentLoaded', renderDashboardCharts);
     window.addEventListener('resize', renderDashboardCharts);
 })();
+
+

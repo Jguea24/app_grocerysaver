@@ -1,4 +1,4 @@
-{% extends "admin/base_site.html" %}
+﻿{% extends "admin/base_site.html" %}
 {% load i18n static grocery_admin %}
 
 {% block extrahead %}
@@ -29,9 +29,9 @@
     <section class="grocery-metric-grid">
         {% for metric in dashboard.metrics %}
         <article class="grocery-metric-card grocery-accent-{{ metric.accent }}">
-            <p class="grocery-metric-card__label">{{ metric.label }}</p>
-            <p class="grocery-metric-card__value">{{ metric.value }}</p>
-            <p class="grocery-metric-card__hint">{{ metric.hint }}</p>
+            <h4 class="grocery-metric-card__label">{{ metric.label }}</h4>
+            <h4 class="grocery-metric-card__value">{{ metric.value }}</h4>
+            <h4 class="grocery-metric-card__hint">{{ metric.hint }}</h4>
         </article>
         {% endfor %}
     </section>
@@ -97,3 +97,4 @@
     </section>
 </div>
 {% endblock %}
+

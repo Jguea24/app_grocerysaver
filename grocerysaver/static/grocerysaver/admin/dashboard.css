@@ -1,4 +1,4 @@
-:root {
+﻿:root {
     --grocery-bg: #eef4fb;
     --grocery-surface: linear-gradient(135deg, #0f2747 0%, #092038 55%, #0b344f 100%);
     --grocery-surface-soft: rgba(9, 24, 44, 0.92);
@@ -162,11 +162,16 @@ div.breadcrumbs {
 .grocery-metric-card {
     position: relative;
     overflow: hidden;
-    min-height: 126px;
-    padding: 18px 18px 16px;
+    min-height: 120px;
+    height: 120px;
+    padding: 14px 14px 12px;
     border-radius: var(--grocery-radius);
     color: white;
     box-shadow: var(--grocery-shadow);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 4px;
 }
 
 .grocery-metric-card::after {
@@ -202,16 +207,22 @@ div.breadcrumbs {
 }
 
 .grocery-metric-card__value {
-    margin: 10px 0 0;
-    font-size: 38px;
-    line-height: 1;
+    margin: 4px 0 0;
+    font-size: 32px;
+    line-height: 1.04;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
 }
 
 .grocery-metric-card__hint {
-    margin: 12px 0 0;
+    margin: 8px 0 0;
     font-size: 12px;
+    line-height: 1.2;
     opacity: 0.84;
 }
 
@@ -220,6 +231,7 @@ div.breadcrumbs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 18px;
 }
+
 
 .grocery-chart-grid--wide {
     grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
@@ -313,6 +325,7 @@ div.breadcrumbs {
 
 @media (max-width: 1100px) {
     .grocery-chart-grid,
+    .grocery-chart-grid--triple,
     .grocery-chart-grid--wide {
         grid-template-columns: 1fr;
     }
@@ -332,3 +345,10 @@ div.breadcrumbs {
         padding: 18px 14px 28px;
     }
 }
+
+
+
+
+
+
+
